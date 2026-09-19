@@ -1,0 +1,9 @@
+docker-bridge
+docker-bridge-ram/
+*.ram-state
+*.ram-lock
+.workshop
+.workshop-ram/
+.workshop-ram-state
+.workshop-ram-lock
+__pycache__/

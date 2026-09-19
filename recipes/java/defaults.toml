@@ -1,0 +1,5 @@
+checkpoint = "docker-bridge"
+ram_capacity = "8G"
+compression = "zstd"
+memory_limit = "12g"
+codex_version = "latest"

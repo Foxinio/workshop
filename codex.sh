@@ -9,4 +9,4 @@ SESSION_REMOVE=true
 session_traps
 # What is teh --env-file flat?
 docker compose --env-file /dev/null --file "${SCRIPT_DIR}/compose.yaml" \
-    run --name "$SESSION_CONTAINER" --no-build --pull never codex "$@"
+    run --name "$SESSION_CONTAINER" --pull never codex "$@"

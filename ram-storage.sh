@@ -30,7 +30,7 @@ ram_require() {
     [[ ${RAM_RECORD[5]} == ready && ! -L "$RAM_DIR" ]] || { ram_error "initialization is incomplete"; return 1; }
     [[ $(findmnt -rn -M "$RAM_DIR" -o SOURCE) == "$RAM_DEVICE" &&
        $(findmnt -rn -M "$RAM_DIR" -o FSTYPE) == ext4 &&
-       $(findmnt -rn -M "$RAM_DIR" -o UUID) == "$RAM_UUID" ]] || {
+       $(sudo blkid -s UUID -o value "$RAM_DEVICE") == "$RAM_UUID" ]] || {
         ram_error "expected zram filesystem is not mounted; refusing disk fallback"; return 1;
     }
 }
@@ -90,7 +90,6 @@ ram_start() {
     trap 'echo "Initialization failed; releasing newly allocated $RAM_DEVICE" >&2;
           if ! mountpoint -q "$RAM_DIR" || sudo umount "$RAM_DIR"; then
               sudo zramctl --reset "$RAM_DEVICE"
-              printf "%s" "${RAM_DEVICE##*/zram}" | sudo tee /sys/class/zram-control/hot_remove >/dev/null
               rm -f -- "$RAM_STATE"
           fi' EXIT
     sudo zramctl --algorithm "${ZRAM_ALGORITHM:-zstd}" --size "${ZRAM_SIZE:-8G}" "$RAM_DEVICE"
@@ -109,7 +108,6 @@ ram_stop() {
     ram_save || return 1
     sudo umount "$RAM_DIR" || return 1
     sudo zramctl --reset "$RAM_DEVICE" || return 1
-    printf '%s' "${RAM_DEVICE##*/zram}" | sudo tee /sys/class/zram-control/hot_remove >/dev/null || return 1
     rm -- "$RAM_STATE"
     echo "RAM device released; disk checkpoint retained."
 }

@@ -24,7 +24,7 @@ SESSION_REMOVE=false
 session_traps
 echo "Use sudo for repairs; exit 0 saves the system image. Home is saved on exit."
 if ! docker compose --env-file /dev/null --file "${SCRIPT_DIR}/compose.yaml" run \
-    --name "$container" --no-build --pull never maintain -c '
+    --name "$container" --pull never maintain -c '
         set -euo pipefail
         uid=$1
         gid=$2

@@ -48,4 +48,4 @@ fi
 docker commit --change 'ENTRYPOINT ["codex"]' --change 'CMD []' \
     --change "USER $HOST_UID:$HOST_GID" "$container" "$image"
 SESSION_REMOVE=true
-echo "Saved $image. Future workshop codex calls will use it."
+echo "Saved $image. Future Workshop sessions will use it."

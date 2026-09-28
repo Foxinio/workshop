@@ -1,7 +1,7 @@
 # Workshop
 
 Workshop generates editable development environments that share this installation's
-Bash runtime. Normal Codex sessions have a read-only system filesystem and a
+Bash runtime. Normal Codex and Claude sessions have a read-only system filesystem and a
 writable home on compressed RAM; maintenance sessions can save system repairs.
 
 ## Installation
@@ -34,11 +34,12 @@ The questionnaire asks, in order:
 
 1. Recipe: discovered names from the installation's **recipes/** directory, or
    **local** (then a local recipe directory). **generic** is the default when present.
-2. Disk checkpoint directory: **docker-bridge**.
-3. Advanced settings? **no**. If yes: RAM capacity **8G**, compression **zstd**,
+2. Tools to install: **codex**, **claude**, or **both** (default).
+3. Disk checkpoint directory: **docker-bridge**.
+4. Advanced settings? **no**. If yes: RAM capacity **8G**, compression **zstd**,
    container memory limit **12g**, and Codex build version **latest**.
-4. Build now? **yes**.
-5. Initialize RAM now? **yes**.
+5. Build now? **yes**.
+6. Initialize RAM now? **yes**.
 
 Recipe defaults supply these settings; local recipes may choose different values.
 No project name is needed. Docker image names, the Compose project and container
@@ -61,6 +62,7 @@ ram_capacity = "8G"
 compression = "zstd"
 memory_limit = "12g"
 codex_version = "latest"
+tools = "both"
 ```
 
 | Field | Meaning |
@@ -71,8 +73,10 @@ codex_version = "latest"
 | `compression` | Compression algorithm supported by the host's zram |
 | `memory_limit` | Container memory limit, positive integer with optional K/M/G/T |
 | `codex_version` | npm version or tag used when building Codex |
+| `tools` | Install `codex`, `claude`, or `both` |
 
-All fields are required; unknown fields are errors. Relative paths resolve against
+All fields are required except `tools`, which defaults to `codex` for older configurations;
+unknown fields are errors. Relative paths resolve against
 the directory containing `.workshop`. Commands search upward for the nearest
 configuration, so they also work from project subdirectories. Configuration is
 parsed with Python's standard-library `tomllib`, never evaluated as shell code.
@@ -92,19 +96,20 @@ my-environment/
 
 Put source files under `docker-bridge/work/` **before** RAM initialization, or
 under `.workshop-ram/work/` after initialization. Container settings and login
-state live under `.workshop-ram/.codex/` and are checkpointed too. Keep RAM,
+state live in the RAM home (`.codex/`, `.claude/`, and `.claude.json`) and are checkpointed too. Keep RAM,
 checkpoints, state and lock files out of version control. Each environment must
 use its own checkpoint directory; intentionally sharing one is unsupported.
 
 ## Recipes and builds
 
-Both bundled recipes retain Ubuntu 24.04 and provide Codex, Node, Python, Git and
+Both bundled recipes retain Ubuntu 24.04 and provide the selected tools, Node, Python, Git and
 general command-line tools. Generic has no Java. Java includes JDKs 17 and 21,
 with 21 selected by default. Edit the generated Dockerfile to change packages,
 the Ubuntu version or Java defaults.
 
 A local recipe has the same format: a Dockerfile, `defaults.toml` containing
-any of the five non-recipe configuration defaults above, and optional build assets.
+any of the non-recipe configuration defaults above, and optional build assets.
+Custom Dockerfiles must honor the `WORKSHOP_TOOLS` build argument to support tool selection.
 To add a bundled recipe, add a directory under `recipes/` with both required files;
 init discovers it automatically. Incomplete directories are omitted. The name
 `local` is reserved for selecting an external recipe directory. If `generic` is
@@ -117,6 +122,8 @@ No maintained-image templates or home snapshots are copied.
 workshop build
 workshop codex
 workshop codex --help       # all arguments are passed unchanged to Codex
+workshop claude
+workshop claude --help      # all arguments are passed unchanged to Claude
 workshop maintain
 ```
 
@@ -125,14 +132,23 @@ checkpoints and RAM contents outside it are not sent to Docker. Keep credentials
 out of the recipe itself. Builds update only the base image. A saved maintained
 image continues to take precedence, and build output explains this when present.
 
+Claude is installed using `npm install --global @anthropic-ai/claude-code`.
+Both tools share the same image and saved home. Each Compose service explicitly
+selects its own executable, including when using a maintained image.
+To add Claude to an existing environment, set `tools = "both"` in `.workshop`
+and update its copied Dockerfile with the installation logic from the matching
+bundled recipe, then run `workshop build`. If a maintained image takes precedence,
+install Claude there with `sudo npm install --global @anthropic-ai/claude-code`
+inside `workshop maintain` and exit successfully.
+
 Normal and maintenance sessions automatically initialize missing RAM from the
 checkpoint, or reuse a validated existing mount. Invalid, stale and incomplete
 state is refused. One session or mutating RAM command may run per environment;
 different environments can run concurrently. Status remains available during sessions.
 
-Both services use a **2 GiB /tmp** and **2048 PID limit**, fixed in the shared
+All services use a **2 GiB /tmp** and **2048 PID limit**, fixed in the shared
 Compose file. These are runtime settings, not Dockerfile or questionnaire options.
-The configured memory limit applies to both services.
+The configured memory limit applies to all services.
 
 ## RAM and checkpointing
 
@@ -143,7 +159,7 @@ workshop ram save     # checkpoint, with no session or other writer active
 workshop ram stop     # checkpoint, unmount and release this environment's device
 ```
 
-Both session types stop their container before checkpointing the home, including
+All session types stop their container before checkpointing the home, including
 on session failure. Checkpoints preserve ownership, links, ACLs and extended
 attributes and propagate deletions. Nested mounts and ext4's lost+found are
 excluded. Keep host editors idle during saves; Workshop cannot lock arbitrary
@@ -216,10 +232,11 @@ Do not run old and new environments against the same writable checkpoint.
 
 ## Validation
 
-No test suite is included. Basic repository checks:
+Run the tool-selection checks and basic repository checks:
 
 ```bash
 for file in workshop *.sh; do bash -n "$file" || exit; done
+python3 -B test_workshop.py
 shellcheck -x workshop *.sh
 python3 -B -c 'import ast,pathlib,tomllib; [ast.parse(p.read_text()) for p in pathlib.Path(".").glob("workshop_*.py")]; [tomllib.loads(p.read_text()) for p in pathlib.Path("recipes").glob("*/defaults.toml")]'
 git diff --check

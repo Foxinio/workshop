@@ -1,46 +1,55 @@
 name: ${WORKSHOP_ID:?Run through workshop}
 
+x-runtime: &runtime
+  build:
+    context: ${WORKSHOP_RECIPE:?Run through workshop}
+    args:
+      CODEX_VERSION: ${CODEX_VERSION:-latest}
+      WORKSHOP_TOOLS: ${WORKSHOP_TOOLS:-both}
+
+  image: ${CODEX_IMAGE:?Run through workshop}
+  user: "${HOST_UID}:${HOST_GID}"
+  working_dir: /home/codex/work
+
+  environment:
+    HOME: /home/codex
+    XDG_CACHE_HOME: /home/codex/.cache
+    NPM_CONFIG_CACHE: /home/codex/.npm
+    TERM: ${TERM:-xterm-256color}
+
+  stdin_open: true
+  tty: true
+  read_only: true
+
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+  network_mode: bridge
+
+  volumes:
+    - type: bind
+      source: ${CODEX_RAM_DIR:?Run through workshop}
+      target: /home/codex
+      bind:
+        create_host_path: false
+
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,size=2g
+
+  pids_limit: 2048
+  mem_limit: ${WORKSHOP_MEMORY_LIMIT:?Run through workshop}
+  init: true
+
 services:
-  codex: &runtime
-    build:
-      context: ${WORKSHOP_RECIPE:?Run through workshop}
-      args:
-        CODEX_VERSION: ${CODEX_VERSION:-latest}
+  codex:
+    <<: *runtime
+    entrypoint: codex
 
-    image: ${CODEX_IMAGE:?Run through workshop}
-    user: "${HOST_UID}:${HOST_GID}"
-    working_dir: /home/codex/work
-
-    environment:
-      HOME: /home/codex
-      XDG_CACHE_HOME: /home/codex/.cache
-      NPM_CONFIG_CACHE: /home/codex/.npm
-      TERM: ${TERM:-xterm-256color}
-
-    stdin_open: true
-    tty: true
-    read_only: true
-
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-
-    network_mode: bridge
-
-    volumes:
-      - type: bind
-        source: ${CODEX_RAM_DIR:?Run through workshop}
-        target: /home/codex
-        bind:
-          create_host_path: false
-
-    tmpfs:
-      - /tmp:rw,nosuid,nodev,size=2g
-
-    pids_limit: 2048
-    mem_limit: ${WORKSHOP_MEMORY_LIMIT:?Run through workshop}
-    init: true
+  claude:
+    <<: *runtime
+    entrypoint: claude
 
   maintain:
     <<: *runtime

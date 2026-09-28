@@ -101,7 +101,7 @@ ram_start() {
     sudo chown "$HOST_UID:$HOST_GID" "$RAM_DIR"
     printf '%s\n' "$boot" "$RAM_DEVICE" "$uuid" "$BRIDGE_DIR" "$RAM_DIR" ready > "$RAM_STATE"
     trap - EXIT
-    echo "RAM home ready: $RAM_DIR. Use workshop codex or workshop maintain."
+    echo "RAM home ready: $RAM_DIR. Use workshop codex, workshop claude or workshop maintain."
 }
 
 ram_stop() {

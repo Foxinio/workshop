@@ -60,6 +60,11 @@ def main():
     if defaults.keys() - DEFAULTS.keys():
         raise ValueError("unknown field in recipe defaults.toml")
     config = {"recipe": "recipe", **DEFAULTS, **defaults}
+    while True:
+        config["tools"] = ask("Install tools (codex/claude/both)", config["tools"]).lower()
+        if config["tools"] in {"codex", "claude", "both"}:
+            break
+        print("Please enter codex, claude or both.")
     config["checkpoint"] = ask("Disk checkpoint directory", config["checkpoint"])
     if yes("Configure advanced settings?", False):
         for key, label in (("ram_capacity", "Zram logical capacity"),

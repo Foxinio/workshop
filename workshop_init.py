@@ -72,7 +72,7 @@ def main():
                            ("memory_limit", "Container memory limit"),
                            ("codex_version", "Codex build version")):
             config[key] = ask(label, config[key])
-    validate(root, config)
+    _, checkpoint = validate(root, config)
     build = yes("Build now?")
     ram = yes("Initialize RAM now?")
     # Exclusive creation and copytree both refuse existing destinations.
@@ -80,6 +80,9 @@ def main():
         for key, value in config.items():
             stream.write(f"{key} = {json.dumps(value, ensure_ascii=False)}\n")
     shutil.copytree(source, root / "recipe")
+    # ram start expects these; create them up front so the layout is complete.
+    checkpoint.mkdir(parents=True, exist_ok=True)
+    (root / ".workshop-ram").mkdir(exist_ok=True)
     print(f"Created Workshop environment in {root}", flush=True)
     for enabled, args in ((build, ["build"]), (ram, ["ram", "start"])):
         if not enabled:

@@ -34,16 +34,19 @@ require_compose() {
 }
 
 prepare_container() {
+    ram_traps
     require_compose
     ram_lock
     ram_start
     ram_no_writers
-    sudo -v || { ram_error "sudo privileges are required"; return 1; }
+    echo "Preparing the container home and selecting the image..."
+    ram_run sudo -v || { ram_error "sudo privileges are required"; return 1; }
     mkdir -p "$RAM_DIR"/{work,.codex,.cache,.npm,.gradle,.local}
     sudo chown -h -- "$HOST_UID:$HOST_GID" "$RAM_DIR" "$RAM_DIR"/{work,.codex,.cache,.npm,.gradle,.local}
     CODEX_IMAGE=$CODEX_BASE_IMAGE
     if docker image inspect "$CODEX_MAINTAINED_IMAGE" >/dev/null 2>&1; then
         CODEX_IMAGE=$CODEX_MAINTAINED_IMAGE
     fi
+    echo "Container image: $CODEX_IMAGE"
     export CODEX_IMAGE
 }

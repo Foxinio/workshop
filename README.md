@@ -90,7 +90,7 @@ my-environment/
 ├── docker-bridge/          disk checkpoint
 ├── .workshop-ram/          mounted RAM home → container /home/codex
 │   └── work/              container working directory
-├── .workshop-ram-state     device identity, boot ID and readiness
+├── .workshop-ram-state     device identity, boot ID, readiness and checkpoint mount ID
 └── .workshop-ram-lock      one active session/storage operation
 ```
 
@@ -157,7 +157,21 @@ workshop ram start    # initialize from disk, or validate and reuse existing RAM
 workshop ram status   # filesystem capacity and zram consumption
 workshop ram save     # checkpoint, with no session or other writer active
 workshop ram stop     # checkpoint, unmount and release this environment's device
+workshop ram reset    # discard unsaved RAM changes and release; keep disk untouched
 ```
+
+While RAM is active, the disk checkpoint is protected by a read-only bind mount.
+Edit `.workshop-ram/work/`; saved file permissions and ACLs remain unchanged.
+Saves temporarily make the checkpoint writable, then restore protection, even
+on copy failure. Stop or reset removes protection. Existing RAM mounts gain
+protection on the next `ram start` or session launch. This discourages accidental
+edits through the checkpoint path; it does not protect against privileged
+remounts or writes through previously opened files or other mount aliases.
+
+Startup prints each storage stage. Loading and saving show rsync's overall
+percentage, bytes, transfer speed and ETA after scanning the file list.
+`ram reset` refuses active sessions and discards everything since the last
+successful checkpoint; the next `ram start` reloads that checkpoint.
 
 All session types stop their container before checkpointing the home, including
 on session failure. Checkpoints preserve ownership, links, ACLs and extended
@@ -209,6 +223,14 @@ Power loss, reboot and device reset lose unsaved RAM. SIGKILL also prevents exit
 cleanup: stop any remaining session container before saving manually. Never reset
 a device to recover from a checkpoint error.
 
+SIGINT, SIGTERM and SIGHUP interrupt copying or launching promptly. Interrupted
+initialization cleans up its newly allocated device and checkpoint protection.
+Interrupted sessions stop their container and save home before exiting (130 for
+SIGINT, 143 for SIGTERM, 129 for SIGHUP). Further signals are ignored while this
+cleanup finishes. Interrupted manual saves restore read-only protection and
+retain RAM for retry. A failed save keeps RAM mounted. Reset explicitly discards
+unsaved RAM; use `ram save` to retry a failed checkpoint instead.
+
 After reboot, Workshop deliberately refuses the old state file. Compare its first
 line with `cat /proc/sys/kernel/random/boot_id`. **Only for an old boot**, after
 confirming no mount exists at `.workshop-ram`, its directory is empty and no
@@ -237,6 +259,7 @@ Run the tool-selection checks and basic repository checks:
 ```bash
 for file in workshop *.sh; do bash -n "$file" || exit; done
 python3 -B test_workshop.py
+python3 -B test_ram.py
 shellcheck -x workshop *.sh
 python3 -B -c 'import ast,pathlib,tomllib; [ast.parse(p.read_text()) for p in pathlib.Path(".").glob("workshop_*.py")]; [tomllib.loads(p.read_text()) for p in pathlib.Path("recipes").glob("*/defaults.toml")]'
 git diff --check

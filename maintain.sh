@@ -23,7 +23,8 @@ SESSION_CONTAINER="$container"
 SESSION_REMOVE=false
 session_traps
 echo "Use sudo for repairs; exit 0 saves the system image. Home is saved on exit."
-if ! docker compose --env-file /dev/null --file "${SCRIPT_DIR}/compose.yaml" run \
+# shellcheck disable=SC2016 # This script runs inside the maintenance container.
+if ! ram_run docker compose --env-file /dev/null --file "${SCRIPT_DIR}/compose.yaml" run \
     --name "$container" --pull never maintain -c '
         set -euo pipefail
         uid=$1
@@ -45,7 +46,7 @@ if ! docker compose --env-file /dev/null --file "${SCRIPT_DIR}/compose.yaml" run
     exit 1
 fi
 
-docker commit --change 'ENTRYPOINT ["codex"]' --change 'CMD []' \
+ram_run docker commit --change 'ENTRYPOINT ["codex"]' --change 'CMD []' \
     --change "USER $HOST_UID:$HOST_GID" "$container" "$image"
 SESSION_REMOVE=true
 echo "Saved $image. Future Workshop sessions will use it."

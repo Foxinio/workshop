@@ -9,5 +9,6 @@ prepare_container
 SESSION_CONTAINER="${WORKSHOP_ID}-session"
 SESSION_REMOVE=true
 session_traps
-docker compose --env-file /dev/null --file "${SCRIPT_DIR}/compose.yaml" \
+echo "Starting $tool; home changes will be saved when the session exits."
+ram_run docker compose --env-file /dev/null --file "${SCRIPT_DIR}/compose.yaml" \
     run --name "$SESSION_CONTAINER" --pull never "$tool" "$@"

@@ -194,7 +194,7 @@ def main():
                     if process.poll() is None:
                         os.killpg(process.pid, signal.SIGKILL)
                         process.wait()
-                assert process.returncode == 128 + sig, (stdout, stderr)
+                assert process.returncode == 128 + sig, (action, sig, stdout, stderr)
                 assert "finishing safely" in stderr
                 if action == "start":
                     assert not (root / ".workshop-ram-state").exists()

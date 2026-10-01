@@ -142,7 +142,10 @@ ram_save() {
     echo "Saving RAM home to $BRIDGE_DIR (host editors must stop writing)."
     # Set before remounting so exit cleanup covers an interrupted remount.
     RAM_CHECKPOINT_WRITABLE=true
-    sudo mount -o remount,bind,rw "$BRIDGE_DIR" || return 1
+    if ! sudo mount -o remount,bind,rw "$BRIDGE_DIR"; then
+        ram_restore_checkpoint || return 1
+        return 1
+    fi
     local result=0
     # ponytail: file-level checkpoint, not atomic; retain RAM on failure for retry.
     ram_run sudo rsync -aHAX --numeric-ids --one-file-system --delete-delay --delay-updates \

@@ -19,6 +19,8 @@ DEFAULTS = {
     "codex_version": "latest",
     "tools": "both",
 }
+TOOLS = ("codex", "claude", "opencode")
+TOOL_SELECTIONS = {**{tool: (tool,) for tool in TOOLS}, "both": TOOLS[:2], "all": TOOLS}
 
 
 def read_toml(path):
@@ -40,8 +42,8 @@ def validate(root, config):
         raise ValueError("invalid compression algorithm name")
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9.+_-]*", config["codex_version"]):
         raise ValueError("codex_version must be an npm version or tag")
-    if config["tools"] not in {"codex", "claude", "both"}:
-        raise ValueError("tools must be codex, claude or both")
+    if config["tools"] not in TOOL_SELECTIONS:
+        raise ValueError("tools must be " + ", ".join(TOOL_SELECTIONS))
     recipe = (root / config["recipe"]).resolve()
     checkpoint = (root / config["checkpoint"]).resolve()
     ram = root / ".workshop-ram"
@@ -101,20 +103,20 @@ def project_environment():
 
 def main():
     command, *args = sys.argv[1:]
-    if command not in {"build", "codex", "claude", "maintain", "ram"}:
+    if command not in {"build", *TOOLS, "maintain", "ram"}:
         raise ValueError("unknown runtime command")
     if command in {"build", "maintain"} and args:
         raise ValueError(f"workshop {command} takes no arguments")
     if command == "ram" and (len(args) != 1 or args[0] not in {"start", "save", "stop", "reset", "purge", "status"}):
         raise ValueError("usage: workshop ram start|save|stop|reset|purge|status")
-    if command in {"codex", "claude"} and "--" in args:
+    if command in TOOLS and "--" in args:
         separator = args.index("--")
         if separator:
             raise ValueError("Workshop options before -- are not supported yet; put tool arguments after --")
         args = args[separator + 1:]
     root, env = project_environment()
-    if command in {"codex", "claude"}:
-        if env["WORKSHOP_TOOLS"] not in {command, "both"}:
+    if command in TOOLS:
+        if command not in TOOL_SELECTIONS[env["WORKSHOP_TOOLS"]]:
             raise ValueError(f"{command} is not selected; update tools in .workshop and rebuild the recipe")
         args = [command, *args]
         command = "session"

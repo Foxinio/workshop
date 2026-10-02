@@ -29,9 +29,10 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eu; \
-    case "$WORKSHOP_TOOLS" in codex|claude|both) ;; *) exit 1 ;; esac; \
-    if [ "$WORKSHOP_TOOLS" != claude ]; then npm install --global "@openai/codex@${CODEX_VERSION}"; fi; \
-    if [ "$WORKSHOP_TOOLS" != codex ]; then npm install --global @anthropic-ai/claude-code; fi; \
+    case "$WORKSHOP_TOOLS" in codex|claude|opencode|both|all) ;; *) exit 1 ;; esac; \
+    case "$WORKSHOP_TOOLS" in codex|both|all) npm install --global "@openai/codex@${CODEX_VERSION}" ;; esac; \
+    case "$WORKSHOP_TOOLS" in claude|both|all) npm install --global @anthropic-ai/claude-code ;; esac; \
+    case "$WORKSHOP_TOOLS" in opencode|all) npm install --global opencode-ai ;; esac; \
     npm cache clean --force
 
 RUN ln -s /usr/bin/fdfind /usr/local/bin/fd && \

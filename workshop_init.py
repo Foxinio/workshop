@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 
-from workshop_config import DEFAULTS, INSTALL, read_toml, validate
+from workshop_config import DEFAULTS, INSTALL, TOOL_SELECTIONS, read_toml, validate
 
 
 def ask(label, default):
@@ -61,10 +61,10 @@ def main():
         raise ValueError("unknown field in recipe defaults.toml")
     config = {"recipe": "recipe", **DEFAULTS, **defaults}
     while True:
-        config["tools"] = ask("Install tools (codex/claude/both)", config["tools"]).lower()
-        if config["tools"] in {"codex", "claude", "both"}:
+        config["tools"] = ask(f"Install tools ({'/'.join(TOOL_SELECTIONS)})", config["tools"]).lower()
+        if config["tools"] in TOOL_SELECTIONS:
             break
-        print("Please enter codex, claude or both.")
+        print("Please enter " + ", ".join(TOOL_SELECTIONS) + ".")
     config["checkpoint"] = ask("Disk checkpoint directory", config["checkpoint"])
     if yes("Configure advanced settings?", False):
         for key, label in (("ram_capacity", "Zram logical capacity"),

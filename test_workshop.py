@@ -14,7 +14,7 @@ import workshop_init as init
 
 
 def main():
-    for selection in ("", "codex", "claude", "both"):
+    for selection in ("", "codex", "claude", "opencode", "both", "all"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
             answers = iter(("", selection, "", "no", "no", "no"))
@@ -27,10 +27,10 @@ def main():
             assert settings["tools"] == (selection or "both")
             with patch.object(Path, "cwd", return_value=root):
                 _, env = config.project_environment()
-                for tool in ("codex", "claude"):
+                for tool in ("codex", "claude", "opencode"):
                     with patch.object(sys, "argv", ["workshop", tool, "a b", "--help"]), \
                          patch.object(os, "chdir"), patch.object(os, "execvpe") as execute:
-                        if settings["tools"] in {tool, "both"}:
+                        if tool in config.TOOL_SELECTIONS[settings["tools"]]:
                             config.main()
                             assert execute.call_args.args[1] == [
                                 "bash", str(config.INSTALL / "session.sh"), tool, "a b", "--help"
@@ -53,8 +53,8 @@ ram_run() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@"; 
 export -f source prepare_container session_traps ram_run
 exec bash "$@"
 '''
-                for tool in ("codex", "claude"):
-                    if settings["tools"] not in {tool, "both"}:
+                for tool in ("codex", "claude", "opencode"):
+                    if tool not in config.TOOL_SELECTIONS[settings["tools"]]:
                         continue
                     for passed, forwarded in (
                         (["--yolo"], ["--yolo"]),
@@ -99,25 +99,26 @@ exec bash "$@"
                 env=env, check=True, capture_output=True, text=True,
             )
             services = json.loads(result.stdout)["services"]
-            for tool in ("codex", "claude"):
+            for tool in ("codex", "claude", "opencode"):
                 assert services[tool]["entrypoint"] == [tool]
                 assert services[tool]["read_only"] is True
                 assert services[tool]["build"]["args"]["WORKSHOP_TOOLS"] == (selection or "both")
-            assert services["codex"]["volumes"] == services["claude"]["volumes"]
+            assert services["codex"]["volumes"] == services["claude"]["volumes"] == services["opencode"]["volumes"]
 
     # Execute the actual Dockerfile selection logic with npm replaced by a logger.
     for recipe in (config.INSTALL / "recipes").iterdir():
         dockerfile = (recipe / "Dockerfile").read_text()
         install = dockerfile.split("RUN set -eu;", 1)[1].split("\n\n", 1)[0]
-        for selection in ("codex", "claude", "both", "invalid"):
+        for selection in ("codex", "claude", "opencode", "both", "all", "invalid"):
             result = subprocess.run(
                 ["sh", "-c", "npm() { printf '%s\\n' \"$*\"; }; set -eu;" + install],
                 env={**os.environ, "WORKSHOP_TOOLS": selection, "CODEX_VERSION": "latest"},
                 capture_output=True, text=True,
             )
             assert (result.returncode == 0) == (selection != "invalid")
-            assert ("@openai/codex@latest" in result.stdout) == (selection in {"codex", "both"})
-            assert ("@anthropic-ai/claude-code" in result.stdout) == (selection in {"claude", "both"})
+            assert ("@openai/codex@latest" in result.stdout) == (selection in {"codex", "both", "all"})
+            assert ("@anthropic-ai/claude-code" in result.stdout) == (selection in {"claude", "both", "all"})
+            assert ("opencode-ai" in result.stdout) == (selection in {"opencode", "all"})
     print("Tool selection, dispatch, legacy configuration and Compose checks passed.")
 
 

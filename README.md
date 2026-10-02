@@ -1,7 +1,7 @@
 # Workshop
 
 Workshop generates editable development environments that share this installation's
-Bash runtime. Normal Codex and Claude sessions have a read-only system filesystem and a
+Bash runtime. Normal Codex, Claude and OpenCode sessions have a read-only system filesystem and a
 writable home on compressed RAM; maintenance sessions can save system repairs.
 
 ## Installation
@@ -34,7 +34,8 @@ The questionnaire asks, in order:
 
 1. Recipe: discovered names from the installation's **recipes/** directory, or
    **local** (then a local recipe directory). **generic** is the default when present.
-2. Tools to install: **codex**, **claude**, or **both** (default).
+2. Tools to install: **codex**, **claude**, **opencode**, **both** (Codex + Claude, default),
+   or **all** (all three).
 3. Disk checkpoint directory: **docker-bridge**.
 4. Advanced settings? **no**. If yes: RAM capacity **8G**, compression **zstd**,
    container memory limit **12g**, and Codex build version **latest**.
@@ -73,7 +74,7 @@ tools = "both"
 | `compression` | Compression algorithm supported by the host's zram |
 | `memory_limit` | Container memory limit, positive integer with optional K/M/G/T |
 | `codex_version` | npm version or tag used when building Codex |
-| `tools` | Install `codex`, `claude`, or `both` |
+| `tools` | Install `codex`, `claude`, `opencode`, `both` (Codex + Claude), or `all` |
 
 All fields are required except `tools`, which defaults to `codex` for older configurations;
 unknown fields are errors. Relative paths resolve against
@@ -96,7 +97,7 @@ my-environment/
 
 Put source files under `docker-bridge/work/` **before** RAM initialization, or
 under `.workshop-ram/work/` after initialization. Container settings and login
-state live in the RAM home (`.codex/`, `.claude/`, and `.claude.json`) and are checkpointed too. Keep RAM,
+state live in the RAM home and are checkpointed too. Keep RAM,
 checkpoints, state and lock files out of version control. Each environment must
 use its own checkpoint directory; intentionally sharing one is unsupported.
 
@@ -124,10 +125,12 @@ workshop codex
 workshop codex -- --help    # arguments after -- are passed unchanged to Codex
 workshop claude
 workshop claude -- --help   # arguments after -- are passed unchanged to Claude
+workshop opencode
+workshop opencode -- --help # arguments after -- are passed unchanged to OpenCode
 workshop maintain
 ```
 
-The first `--` separates Workshop options from Codex or Claude arguments.
+The first `--` separates Workshop options from Codex, Claude or OpenCode arguments.
 Workshop has no session options yet, so anything before that separator is
 rejected. Arguments after it are forwarded unchanged. Calls without a separator
 still forward all arguments. For a tool command that needs its own `--`, use
@@ -139,13 +142,19 @@ out of the recipe itself. Builds update only the base image. A saved maintained
 image continues to take precedence, and build output explains this when present.
 
 Claude is installed using `npm install --global @anthropic-ai/claude-code`.
-Both tools share the same image and saved home. Each Compose service explicitly
+OpenCode is installed using `npm install --global opencode-ai`, as documented in
+[the OpenCode installation guide](https://opencode.ai/docs/#install).
+All selected tools share the same image and saved home. Each Compose service explicitly
 selects its own executable, including when using a maintained image.
 To add Claude to an existing environment, set `tools = "both"` in `.workshop`
 and update its copied Dockerfile with the installation logic from the matching
 bundled recipe, then run `workshop build`. If a maintained image takes precedence,
 install Claude there with `sudo npm install --global @anthropic-ai/claude-code`
 inside `workshop maintain` and exit successfully.
+To add OpenCode, use `tools = "all"` (or `"opencode"` for OpenCode alone), update
+the copied Dockerfile from the bundled recipe, and rebuild. For a maintained
+image, install it with `sudo npm install --global opencode-ai` inside
+`workshop maintain` and exit successfully.
 
 Normal and maintenance sessions automatically initialize missing RAM from the
 checkpoint, or reuse a validated existing mount. Invalid, stale and incomplete

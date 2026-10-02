@@ -5,7 +5,7 @@ command=${1:-help}
 if [[ $# -gt 0 ]]; then shift; fi
 case "$command" in
     init) exec python3 "$SCRIPT_DIR/workshop_init.py" "$@" ;;
-    build|codex|claude|maintain|ram) exec python3 "$SCRIPT_DIR/workshop_config.py" "$command" "$@" ;;
-		help|-h|--help) echo 'Usage: workshop {init|build|codex [--] [arguments…]|claude [--] [arguments…]|maintain|ram (start|save|stop|reset|purge|status)}' ;;
+    build|codex|claude|opencode|maintain|ram) exec python3 "$SCRIPT_DIR/workshop_config.py" "$command" "$@" ;;
+		help|-h|--help) echo 'Usage: workshop {init|build|codex [--] [arguments…]|claude [--] [arguments…]|opencode [--] [arguments…]|maintain|ram (start|save|stop|reset|purge|status)}' ;;
     *) echo "Unknown Workshop command: $command" >&2; exit 2 ;;
 esac

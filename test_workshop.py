@@ -43,12 +43,13 @@ def main():
                             else:
                                 raise AssertionError("disabled tool launched")
                             execute.assert_not_called()
-                with patch.object(sys, "argv", ["workshop", "ram", "reset"]), \
-                     patch.object(os, "chdir"), patch.object(os, "execvpe") as execute:
-                    config.main()
-                    assert execute.call_args.args[1] == [
-                        "bash", str(config.INSTALL / "ram.sh"), "reset"
-                    ]
+                for action in ("reset", "purge"):
+                    with patch.object(sys, "argv", ["workshop", "ram", action]), \
+                         patch.object(os, "chdir"), patch.object(os, "execvpe") as execute:
+                        config.main()
+                        assert execute.call_args.args[1] == [
+                            "bash", str(config.INSTALL / "ram.sh"), action
+                        ]
                 # Older configurations retain their Codex-only behavior.
                 del settings["tools"]
                 with patch.object(config, "read_toml", return_value=settings):

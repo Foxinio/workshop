@@ -115,12 +115,16 @@ ram_restore_checkpoint() {
 ram_require() {
     ram_read_state || return 1
     [[ ${RAM_RECORD[5]} == ready && ! -L "$RAM_DIR" ]] || { ram_error "initialization is incomplete"; return 1; }
-    [[ $(findmnt -rn -M "$RAM_DIR" -o SOURCE) == "$RAM_DEVICE" &&
+    ram_device_require || return 1
+    if [[ -n "$RAM_CHECKPOINT_ID" ]]; then ram_checkpoint_require; fi
+}
+
+ram_device_require() {
+    [[ -n "$RAM_UUID" && $(findmnt -rn -M "$RAM_DIR" -o SOURCE) == "$RAM_DEVICE" &&
        $(findmnt -rn -M "$RAM_DIR" -o FSTYPE) == ext4 &&
        $(sudo blkid -s UUID -o value "$RAM_DEVICE") == "$RAM_UUID" ]] || {
         ram_error "expected zram filesystem is not mounted; refusing disk fallback"; return 1;
     }
-    if [[ -n "$RAM_CHECKPOINT_ID" ]]; then ram_checkpoint_require; fi
 }
 
 ram_no_writers() {
@@ -223,20 +227,76 @@ ram_stop() {
 }
 
 ram_reset() {
-    ram_require || return 1
+    ram_stop || {
+        ram_error "reset could not complete; retry after fixing the error, or use workshop ram purge to discard RAM"; return 1;
+    }
+}
+
+ram_purge() {
+    local targets target ram_mounted=false checkpoint_mounted=false device_targets
+    [[ ! -L "$RAM_DIR" && ( ! -e "$RAM_DIR" || -d "$RAM_DIR" ) && ! -L "$RAM_STATE" &&
+       ( ! -e "$RAM_STATE" || -f "$RAM_STATE" ) ]] || {
+        ram_error "purge requires ordinary RAM and state paths"; return 1;
+    }
     ram_no_writers || return 1
+    targets=$(findmnt -rn -o TARGET) || return 1
+    while IFS= read -r target; do
+        # findmnt raw output hex-escapes spaces and other special characters.
+        printf -v target '%b' "$target"
+        case "$target" in
+            "$RAM_DIR") ram_mounted=true ;;
+            "$BRIDGE_DIR") checkpoint_mounted=true ;;
+            "$RAM_DIR/"*) ram_error "unmount nested RAM filesystem first: $target"; return 1 ;;
+        esac
+    done <<< "$targets"
+
+    RAM_DEVICE=
+    RAM_CHECKPOINT_ID=
+    if ram_read_state 2>/dev/null; then
+        if [[ $ram_mounted == true ]]; then
+            ram_device_require || return 1
+        elif [[ -z "$RAM_UUID" || $(sudo blkid -s UUID -o value "$RAM_DEVICE") != "$RAM_UUID" ]]; then
+            # The recorded device may have been reset or reassigned. Leave it alone.
+            RAM_DEVICE=
+        else
+            device_targets=$(findmnt -rn -S "$RAM_DEVICE" -o TARGET) || {
+                [[ $? == 1 ]] || return 1
+                device_targets=
+            }
+            [[ -z "$device_targets" ]] || {
+                ram_error "recorded device is mounted elsewhere; refusing purge"; return 1;
+            }
+        fi
+    else
+        # Stale/malformed records cannot establish ownership of a live device.
+        RAM_DEVICE=
+        RAM_CHECKPOINT_ID=
+        if [[ $ram_mounted == true || $checkpoint_mounted == true ]]; then
+            ram_error "cannot identify live mounts from this state; refusing to purge an unknown filesystem"; return 1
+        fi
+    fi
+    if [[ $checkpoint_mounted == true ]]; then
+        [[ -n "$RAM_CHECKPOINT_ID" && $(findmnt -rn -M "$BRIDGE_DIR" -o ID) == "$RAM_CHECKPOINT_ID" ]] || {
+            ram_error "checkpoint protection changed; refusing purge"; return 1;
+        }
+    fi
     echo "Discarding unsaved RAM changes; keeping the disk checkpoint untouched."
-    ram_release
+    ram_release || return 1
+    if [[ -d "$RAM_DIR" ]]; then
+        sudo find "$RAM_DIR" -mindepth 1 -delete || return 1
+    fi
 }
 
 ram_release() {
     # Finish the short release sequence after saving or explicitly discarding RAM.
     trap '' INT TERM HUP
     echo "Unmounting RAM and restoring writable disk access..."
-    sudo umount "$RAM_DIR" || return 1
-    if [[ -n "$RAM_CHECKPOINT_ID" ]]; then sudo umount "$BRIDGE_DIR" || return 1; fi
-    sudo zramctl --reset "$RAM_DEVICE" || return 1
-    rm -- "$RAM_STATE"
+    if mountpoint -q "$RAM_DIR"; then sudo umount "$RAM_DIR" || return 1; fi
+    if [[ -n "$RAM_CHECKPOINT_ID" ]] && mountpoint -q "$BRIDGE_DIR"; then
+        sudo umount "$BRIDGE_DIR" || return 1
+    fi
+    if [[ -n "$RAM_DEVICE" ]]; then sudo zramctl --reset "$RAM_DEVICE" || return 1; fi
+    rm -f -- "$RAM_STATE"
     echo "RAM device released; disk checkpoint retained. You can run workshop ram start again."
 }
 

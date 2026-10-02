@@ -3,8 +3,8 @@ set -euo pipefail
 
 action=${1:-help}
 case "$action" in
-    start|save|stop|reset|status) shift ;;
-    *) echo "Usage: workshop ram {start|save|stop|reset|status}"; exit 2 ;;
+    start|save|stop|reset|purge|status) shift ;;
+    *) echo "Usage: workshop ram {start|save|stop|reset|purge|status}"; exit 2 ;;
 esac
 # shellcheck source=container-env.sh
 source "$(dirname -- "${BASH_SOURCE[0]}")/container-env.sh"
@@ -20,6 +20,7 @@ case "$action" in
     save) ram_save ;;
     stop) ram_stop ;;
     reset) ram_reset ;;
+    purge) ram_purge ;;
     status)
         ram_require
         df -h "$RAM_DIR"

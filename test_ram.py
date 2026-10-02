@@ -16,6 +16,18 @@ BRIDGE_DIR="$WORKSHOP_ROOT/docker-bridge"
 HOST_UID=$(id -u)
 HOST_GID=$(id -g)
 findmnt() {
+    if [[ $2 == -o ]]; then
+        echo /
+        [[ ! -f "$WORKSHOP_ROOT/ram-mounted" ]] || echo "$RAM_DIR"
+        [[ ! -f "$WORKSHOP_ROOT/bridge-mounted" ]] || echo "$BRIDGE_DIR"
+        [[ ! -f "$WORKSHOP_ROOT/nested-mounted" ]] || echo "$RAM_DIR/nested"
+        return 0
+    fi
+    if [[ $2 == -S ]]; then
+        [[ -f "$WORKSHOP_ROOT/device-elsewhere" ]] || return 1
+        echo /another-environment
+        return 0
+    fi
     if [[ $3 == "$BRIDGE_DIR" ]]; then
         [[ -f "$WORKSHOP_ROOT/bridge-mounted" ]] || return 1
         case $5 in
@@ -56,13 +68,14 @@ sudo() {
                 rm "$WORKSHOP_ROOT/ram-mounted"
             fi ;;
         cat) echo 0 ;;
-        blkid) echo uuid ;;
+        blkid) echo "${TEST_UUID:-uuid}" ;;
         rsync)
             [[ ${TEST_BLOCK:-} != rsync ]] || block
             [[ ${TEST_FAIL_COPY:-false} != true ]] || return 23
             command rsync "$@" ;;
         sync) return "${TEST_SYNC_RESULT:-0}" ;;
         chown) command chown "$@" ;;
+        find) command find "$@" ;;
         -v|modprobe|zramctl|mkfs.ext4) : ;;
         *) echo "Unexpected sudo: $action $*" >&2; return 1 ;;
     esac
@@ -131,14 +144,14 @@ def main():
     for failure in ({"TEST_FAIL_COPY": "true"}, {"TEST_SYNC_RESULT": "1"}):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            result = run('ram_stop', {**fixture(root), **failure})
+            result = run('ram_reset', {**fixture(root), **failure})
             assert result.returncode != 0
             assert (root / "ram-mounted").exists()
             assert (root / ".workshop-ram-state").exists()
             assert (root / "bridge-mode").read_text().strip() == "ro"
             assert "umount" not in (root / "trace").read_text()
 
-    for action in ("stop", "reset"):
+    for action in ("stop", "reset", "purge"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             result = run('ram_' + action, fixture(root))
@@ -147,11 +160,11 @@ def main():
             assert not (root / "bridge-mounted").exists()
             assert not (root / ".workshop-ram-state").exists()
             trace = (root / "trace").read_text()
-            assert ("rsync " in trace) == (action == "stop")
-            if action == "reset":
+            assert ("rsync " in trace) == (action != "purge")
+            if action == "purge":
                 assert (root / "docker-bridge/original").read_text() == "disk checkpoint"
 
-    for action in ("save", "reset"):
+    for action in ("save", "reset", "purge"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env = fixture(root)
@@ -166,6 +179,59 @@ def main():
         result = run('ram_reset', {**fixture(root), "TEST_MOUNT_ID": "99"})
         assert result.returncode != 0 and "protection changed" in result.stderr
         assert "umount" not in (root / "trace").read_text()
+
+    for scenario in ("old-boot", "malformed", "missing", "loading", "writable", "released"):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = fixture(root)
+            state = root / ".workshop-ram-state"
+            record = state.read_text().splitlines()
+            if scenario in {"old-boot", "malformed", "missing", "released"}:
+                (root / "ram-mounted").unlink()
+            if scenario in {"old-boot", "malformed", "missing"}:
+                (root / "bridge-mounted").unlink()
+            if scenario == "old-boot":
+                record[0] = "previous-boot"
+                state.write_text("\n".join(record) + "\n")
+            elif scenario == "malformed":
+                state.write_text("broken\n")
+            elif scenario == "missing":
+                state.unlink()
+            elif scenario == "loading":
+                record[5] = "loading"
+                state.write_text("\n".join(record) + "\n")
+            elif scenario == "writable":
+                (root / "bridge-mode").write_text("rw\n")
+            result = run('ram_purge', env)
+            assert result.returncode == 0, (scenario, result.stderr)
+            assert not state.exists()
+            assert not any((root / ".workshop-ram").iterdir())
+            trace = (root / "trace").read_text()
+            assert "rsync " not in trace
+            if scenario in {"old-boot", "malformed", "missing"}:
+                assert "zramctl --reset" not in trace
+            assert (root / "docker-bridge/original").read_text() == "disk checkpoint"
+            result = run('ram_start; ram_require', env)
+            assert result.returncode == 0, (scenario, result.stderr)
+
+    for scenario in ("unknown-live", "nested", "elsewhere", "wrong-device"):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = fixture(root)
+            if scenario == "unknown-live":
+                (root / ".workshop-ram-state").write_text("broken\n")
+            elif scenario == "nested":
+                (root / "nested-mounted").touch()
+            elif scenario == "elsewhere":
+                (root / "ram-mounted").unlink()
+                (root / "device-elsewhere").touch()
+            else:
+                env["TEST_UUID"] = "another-device"
+            result = run('ram_purge', env)
+            assert result.returncode != 0, scenario
+            trace = (root / "trace").read_text()
+            assert "umount" not in trace and "zramctl --reset" not in trace
+            assert (root / ".workshop-ram/new").read_text() == "RAM changes"
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         for action in ("start", "save", "session"):
@@ -214,7 +280,7 @@ def main():
     result = run('ram_run cat', {**os.environ, "INSTALL": str(INSTALL),
                                 "WORKSHOP_ROOT": "/unused"}, input="attached\n")
     assert result.returncode == 0 and result.stdout == "attached\n"
-    print("RAM protection, copying, reset, failures, SIGINT/SIGTERM and stdin checks passed.")
+    print("RAM protection, reset/save failures, purge/restart, ownership, signals and stdin checks passed.")
 
 
 if __name__ == "__main__":

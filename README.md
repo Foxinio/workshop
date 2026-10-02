@@ -157,21 +157,27 @@ workshop ram start    # initialize from disk, or validate and reuse existing RAM
 workshop ram status   # filesystem capacity and zram consumption
 workshop ram save     # checkpoint, with no session or other writer active
 workshop ram stop     # checkpoint, unmount and release this environment's device
-workshop ram reset    # discard unsaved RAM changes and release; keep disk untouched
+workshop ram reset    # save and release, like stop; keep RAM if saving fails
+workshop ram purge    # discard RAM and stale state; keep disk checkpoint untouched
 ```
 
 While RAM is active, the disk checkpoint is protected by a read-only bind mount.
 Edit `.workshop-ram/work/`; saved file permissions and ACLs remain unchanged.
 Saves temporarily make the checkpoint writable, then restore protection, even
-on copy failure. Stop or reset removes protection. Existing RAM mounts gain
+on copy failure. Stop, reset or purge removes protection. Existing RAM mounts gain
 protection on the next `ram start` or session launch. This discourages accidental
 edits through the checkpoint path; it does not protect against privileged
 remounts or writes through previously opened files or other mount aliases.
 
 Startup prints each storage stage. Loading and saving show rsync's overall
 percentage, bytes, transfer speed and ETA after scanning the file list.
-`ram reset` refuses active sessions and discards everything since the last
-successful checkpoint; the next `ram start` reloads that checkpoint.
+`ram reset` saves RAM before releasing it and reports failures without falling
+back to discarding data. Use `ram purge` when you explicitly want to discard
+unsaved RAM, clear stale or malformed state, and start from the disk checkpoint.
+Purge handles incomplete initialization and partially released storage when
+ownership can be verified, and removes leftover files in the unmounted RAM
+directory. Both commands refuse active sessions. Purge also refuses unknown live
+mounts, devices mounted elsewhere, symlink paths and nested RAM mounts.
 
 All session types stop their container before checkpointing the home, including
 on session failure. Checkpoints preserve ownership, links, ACLs and extended
@@ -228,16 +234,15 @@ initialization cleans up its newly allocated device and checkpoint protection.
 Interrupted sessions stop their container and save home before exiting (130 for
 SIGINT, 143 for SIGTERM, 129 for SIGHUP). Further signals are ignored while this
 cleanup finishes. Interrupted manual saves restore read-only protection and
-retain RAM for retry. A failed save keeps RAM mounted. Reset explicitly discards
-unsaved RAM; use `ram save` to retry a failed checkpoint instead.
+retain RAM for retry. A failed save keeps RAM mounted. Purge explicitly discards
+unsaved RAM; use `ram save` or `ram reset` to retry a failed checkpoint instead.
 
-After reboot, Workshop deliberately refuses the old state file. Compare its first
-line with `cat /proc/sys/kernel/random/boot_id`. **Only for an old boot**, after
-confirming no mount exists at `.workshop-ram`, its directory is empty and no
-container uses it, rename `.workshop-ram-state` to a backup and run
-`workshop ram start`. Do not act on the old device number: another environment
-may now own it. Same-boot invalid/incomplete state needs manual inspection with
-`findmnt`, `zramctl` and the state record; do not remove state or mount over data.
+After reboot, startup deliberately refuses the old state file. Run
+`workshop ram purge`, then `workshop ram start` to discard stale RAM state and
+reload the disk checkpoint. Purge never touches a device identified only by an
+old boot record: another environment may now own its number. If purge refuses
+an unknown live mount, inspect `findmnt`, `zramctl` and the state record first;
+do not reset an unverified device or mount over data.
 
 Moving an environment changes its Docker identity. Stop RAM and sessions before
 moving it, and migrate any maintained image explicitly if needed.

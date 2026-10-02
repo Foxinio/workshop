@@ -165,7 +165,7 @@ ram_save() {
 }
 
 ram_start() {
-    local id uuid boot
+    local id uuid boot tool
     echo "[1/5] Checking RAM storage and required host tools..."
     for tool in sudo modprobe zramctl mkfs.ext4 mount umount findmnt rsync flock blkid mountpoint docker; do
         command -v "$tool" >/dev/null || { ram_error "missing host tool: $tool"; return 1; }

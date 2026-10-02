@@ -43,6 +43,43 @@ def main():
                             else:
                                 raise AssertionError("disabled tool launched")
                             execute.assert_not_called()
+                # Run the real CLI, Python dispatch and session launcher. Only
+                # storage preparation and the final Docker invocation are mocked.
+                launcher = r'''
+source() { SCRIPT_DIR=${1%/*}; }
+prepare_container() { :; }
+session_traps() { :; }
+ram_run() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@"; }
+export -f source prepare_container session_traps ram_run
+exec bash "$@"
+'''
+                for tool in ("codex", "claude"):
+                    if settings["tools"] not in {tool, "both"}:
+                        continue
+                    for passed, forwarded in (
+                        (["--yolo"], ["--yolo"]),
+                        (["--", "--yolo"], ["--yolo"]),
+                        (["--help"], ["--help"]),
+                        (["--", "--help"], ["--help"]),
+                        (["--"], []),
+                        (["--", "exec", "--", "a b", ""], ["exec", "--", "a b", ""]),
+                    ):
+                        result = subprocess.run(
+                            ["bash", "-c", launcher, "test", str(config.INSTALL / "workshop"), tool, *passed],
+                            cwd=root, capture_output=True, text=True,
+                        )
+                        assert result.returncode == 0, result.stderr
+                        docker_args = json.loads(result.stdout.splitlines()[-1])
+                        assert docker_args == [
+                            "docker", "compose", "--env-file", "/dev/null", "--file",
+                            str(config.INSTALL / "compose.yaml"), "run", "--name",
+                            env["WORKSHOP_ID"] + "-session", "--pull", "never", tool, *forwarded,
+                        ]
+                    result = subprocess.run(
+                        [str(config.INSTALL / "workshop"), tool, "--unknown", "--", "--help"],
+                        cwd=root, capture_output=True, text=True,
+                    )
+                    assert result.returncode != 0 and "before --" in result.stderr
                 for action in ("reset", "purge"):
                     with patch.object(sys, "argv", ["workshop", "ram", action]), \
                          patch.object(os, "chdir"), patch.object(os, "execvpe") as execute:

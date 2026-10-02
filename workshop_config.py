@@ -107,6 +107,11 @@ def main():
         raise ValueError(f"workshop {command} takes no arguments")
     if command == "ram" and (len(args) != 1 or args[0] not in {"start", "save", "stop", "reset", "purge", "status"}):
         raise ValueError("usage: workshop ram start|save|stop|reset|purge|status")
+    if command in {"codex", "claude"} and "--" in args:
+        separator = args.index("--")
+        if separator:
+            raise ValueError("Workshop options before -- are not supported yet; put tool arguments after --")
+        args = args[separator + 1:]
     root, env = project_environment()
     if command in {"codex", "claude"}:
         if env["WORKSHOP_TOOLS"] not in {command, "both"}:

@@ -121,11 +121,17 @@ No maintained-image templates or home snapshots are copied.
 ```bash
 workshop build
 workshop codex
-workshop codex --help       # all arguments are passed unchanged to Codex
+workshop codex -- --help    # arguments after -- are passed unchanged to Codex
 workshop claude
-workshop claude --help      # all arguments are passed unchanged to Claude
+workshop claude -- --help   # arguments after -- are passed unchanged to Claude
 workshop maintain
 ```
+
+The first `--` separates Workshop options from Codex or Claude arguments.
+Workshop has no session options yet, so anything before that separator is
+rejected. Arguments after it are forwarded unchanged. Calls without a separator
+still forward all arguments. For a tool command that needs its own `--`, use
+the Workshop separator first: `workshop codex -- exec -- "prompt"`.
 
 The build context is exclusively the configured recipe directory. Project files,
 checkpoints and RAM contents outside it are not sent to Docker. Keep credentials

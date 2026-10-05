@@ -54,6 +54,9 @@ ram_lock() {
     [[ ! -L "$RAM_LOCK" ]] || { ram_error "lock must not be a symlink"; return 1; }
     exec {RAM_LOCK_FD}>"$RAM_LOCK"
     flock -n "$RAM_LOCK_FD" || { ram_error "another session or storage command is active"; return 1; }
+    if [[ -f "$WORKSHOP_ROOT/.workshop" ]]; then
+        python3 "$SCRIPT_DIR/workshop_config.py" --check-update "$WORKSHOP_ROOT" || return 1
+    fi
 }
 
 ram_read_state() {

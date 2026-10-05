@@ -33,7 +33,7 @@ def main():
     if len(sys.argv) != 1:
         raise ValueError("workshop init takes no arguments")
     root = Path.cwd().resolve()
-    for target in (root / ".workshop", root / "recipe"):
+    for target in (root / ".workshop", root / "recipe", root / ".workshop-generated.json"):
         if target.exists() or target.is_symlink():
             raise ValueError(f"refusing to overwrite {target}")
     recipes = {
@@ -80,6 +80,8 @@ def main():
         for key, value in config.items():
             stream.write(f"{key} = {json.dumps(value, ensure_ascii=False)}\n")
     shutil.copytree(source, root / "recipe")
+    from workshop_update import record_generated
+    record_generated(root, "recipe", source, selection if selection != "local" else None)
     # ram start expects these; create them up front so the layout is complete.
     checkpoint.mkdir(parents=True, exist_ok=True)
     (root / ".workshop-ram").mkdir(exist_ok=True)

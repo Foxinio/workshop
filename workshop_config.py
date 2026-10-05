@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate project configuration and exec the shared Bash runtime."""
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -60,7 +61,7 @@ def validate(root, config):
             raise ValueError(f"checkpoint must not be inside {protected}")
     if recipe == root or recipe in root.parents or recipe == ram or ram in recipe.parents:
         raise ValueError("recipe must be separate from the project root and RAM home")
-    for name in (".workshop", ".workshop-ram-state", ".workshop-ram-lock"):
+    for name in (".workshop", ".workshop-generated.json", ".workshop-ram-state", ".workshop-ram-lock"):
         reserved = root / name
         if checkpoint == reserved or reserved in checkpoint.parents:
             raise ValueError(f"checkpoint conflicts with {reserved}")
@@ -69,14 +70,36 @@ def validate(root, config):
     return recipe, checkpoint
 
 
-def project_environment():
+def project_root():
     cwd = Path.cwd().resolve()
     for root in (cwd, *cwd.parents):
         if (root / ".workshop").exists() or (root / ".workshop").is_symlink():
             break
     else:
         raise ValueError("no .workshop found; run workshop init in the environment directory")
+    return root
+
+
+def check_update(root):
+    if (root / ".workshop").is_symlink():
+        raise ValueError(".workshop must not be a symlink")
     config = read_toml(root / ".workshop")
+    flag = config.get("updating", False)
+    if not isinstance(flag, bool):
+        raise ValueError("updating must be a boolean")
+    metadata = root / ".workshop-generated.json"
+    if metadata.is_symlink():
+        raise ValueError("generated-file metadata must not be a symlink")
+    pending = metadata.exists() and "pending" in json.loads(metadata.read_text())
+    if flag or pending:
+        raise ValueError("Workshop is updating; resolve files and run workshop update --finish")
+
+
+def project_environment():
+    root = project_root()
+    check_update(root)
+    config = read_toml(root / ".workshop")
+    config.pop("updating", None)
     config.setdefault("tools", "codex")
     recipe, checkpoint = validate(root, config)
     if not (recipe / "Dockerfile").is_file():
@@ -126,6 +149,9 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        if len(sys.argv) == 3 and sys.argv[1] == "--check-update":
+            check_update(Path(sys.argv[2]))
+        else:
+            main()
     except (OSError, ValueError) as error:
         sys.exit(f"Workshop: {error}")

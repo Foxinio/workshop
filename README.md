@@ -77,7 +77,7 @@ tools = "both"
 | `tools` | Install `codex`, `claude`, `opencode`, `both` (Codex + Claude), or `all` |
 
 All fields are required except `tools`, which defaults to `codex` for older configurations;
-unknown fields are errors. Relative paths resolve against
+the optional boolean `updating` is reserved for updates; unknown fields are errors. Relative paths resolve against
 the directory containing `.workshop`. Commands search upward for the nearest
 configuration, so they also work from project subdirectories. Configuration is
 parsed with Python's standard-library `tomllib`, never evaluated as shell code.
@@ -85,6 +85,7 @@ parsed with Python's standard-library `tomllib`, never evaluated as shell code.
 ```text
 my-environment/
 ├── .workshop
+├── .workshop-generated.json  recipe origin and generated paths; no content snapshots
 ├── recipe/
 │   ├── Dockerfile
 │   └── defaults.toml
@@ -146,13 +147,12 @@ OpenCode is installed using `npm install --global opencode-ai`, as documented in
 [the OpenCode installation guide](https://opencode.ai/docs/#install).
 All selected tools share the same image and saved home. Each Compose service explicitly
 selects its own executable, including when using a maintained image.
-To add Claude to an existing environment, set `tools = "both"` in `.workshop`
-and update its copied Dockerfile with the installation logic from the matching
-bundled recipe, then run `workshop build`. If a maintained image takes precedence,
+To add Claude to an existing environment, run `workshop update` as described below,
+set `tools = "both"` in `.workshop`, then run `workshop build`. If a maintained image takes precedence,
 install Claude there with `sudo npm install --global @anthropic-ai/claude-code`
 inside `workshop maintain` and exit successfully.
-To add OpenCode, use `tools = "all"` (or `"opencode"` for OpenCode alone), update
-the copied Dockerfile from the bundled recipe, and rebuild. For a maintained
+To add OpenCode, update the environment, use `tools = "all"` (or `"opencode"` for OpenCode alone),
+and rebuild. For a maintained
 image, install it with `sudo npm install --global opencode-ai` inside
 `workshop maintain` and exit successfully.
 
@@ -164,6 +164,58 @@ different environments can run concurrently. Status remains available during ses
 All services use a **2 GiB /tmp** and **2048 PID limit**, fixed in the shared
 Compose file. These are runtime settings, not Dockerfile or questionnaire options.
 The configured memory limit applies to all services.
+
+## Update an existing environment
+
+```bash
+workshop update          # apply additions, prepare other changes for review
+# Edit recipe files to resolve the WORKSHOP CURRENT / WORKSHOP TEMPLATE markers.
+workshop update --finish # validate the reviewed result and enable commands
+workshop update --force  # replace generated recipe files without review
+```
+
+Updates use the newest templates in this installed checkout; update the installation
+first to obtain newer templates. They preserve `.workshop` settings and comments,
+including selected tools, checkpoint paths and limits. Missing configuration fields
+are appended; a missing `tools` field becomes `codex` to preserve legacy behavior.
+Updating does not build or change images. Rebuild separately after selecting tools.
+
+If all differences are new files or inserted text, Workshop validates and applies
+them automatically without setting an updating flag. Without a baseline, this is
+an insertion-only heuristic, not proof that a file was never edited. Replacements
+and deletions get inline markers around the current and proposed sections. Keep
+either version or combine them, removing all marker lines. For a removed template
+file, delete it or retain its contents; retained files become user-owned after finish.
+Changed binary assets require `--force`.
+
+During review, `.workshop` contains `updating = true`; build, sessions, maintenance
+and every RAM command (including status) refuse to run. Help and update commands
+remain available. Pending metadata also blocks commands, so removing the flag alone
+does not complete an update. `--finish` leaves the environment blocked if syntax
+checks fail. If writing files was interrupted, use `--force` to complete the update;
+it intentionally replaces edits to managed recipe files. Updates refuse active
+sessions, storage operations and builds through the existing environment lock.
+
+New environments record the source recipe and copied file paths in
+`.workshop-generated.json`; no original file contents or historical templates are
+stored. Older environments prompt once for their original bundled recipe or a
+local source directory. Initially only their `Dockerfile` and `defaults.toml` are
+recognized as generated recipe files. Other existing files remain protected:
+even force mode refuses an incoming template that collides with an untracked file.
+Updates never touch checkpoints, RAM contents or unrelated user files. Keep the
+metadata with the environment; deleting it loses ownership of extra recipe assets.
+Updates require a recipe directory inside the environment and refuse symlinks in
+managed paths or source assets. Local recipe sources must remain available for
+future updates, but finishing a prepared review does not need the source directory.
+
+Validation requires Docker access and **Docker Buildx 0.15+**, using `buildx build
+--check` to parse every managed Dockerfile without running its build steps. Checks
+may download frontend or image metadata; missing dependencies or failed checks
+prevent completion. `.workshop` and recipe defaults receive TOML and field checks.
+Other managed TOML, JSON and YAML files are parsed; YAML requires `python3-yaml`
+(PyYAML). Compose YAML also passes `docker compose config`. Generated shell and
+Python files receive syntax checks. Unsupported `.conf`, `.cfg`, `.ini` and
+`.config` formats are refused instead of being treated as validated.
 
 ## RAM and checkpointing
 
@@ -279,6 +331,7 @@ Run the tool-selection checks and basic repository checks:
 ```bash
 for file in workshop *.sh; do bash -n "$file" || exit; done
 python3 -B test_workshop.py
+python3 -B test_update.py
 python3 -B test_ram.py
 shellcheck -x workshop *.sh
 python3 -B -c 'import ast,pathlib,tomllib; [ast.parse(p.read_text()) for p in pathlib.Path(".").glob("workshop_*.py")]; [tomllib.loads(p.read_text()) for p in pathlib.Path("recipes").glob("*/defaults.toml")]'

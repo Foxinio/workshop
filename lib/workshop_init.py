@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 
-from workshop_config import DEFAULTS, INSTALL, TOOL_SELECTIONS, read_toml, validate
+from workshop_config import DEFAULTS, INSTALL, TOOL_SELECTIONS, project_path, read_toml, validate
 
 
 def ask(label, default):
@@ -59,7 +59,8 @@ def main():
     defaults = read_toml(source / "defaults.toml")
     if defaults.keys() - DEFAULTS.keys():
         raise ValueError("unknown field in recipe defaults.toml")
-    config = {"recipe": "recipe", **DEFAULTS, **defaults}
+    recipe = f".workshop/recipes/{selection}"
+    config = {"recipe": recipe, **DEFAULTS, **defaults}
     while True:
         config["tools"] = ask(f"Install tools ({'/'.join(TOOL_SELECTIONS)})", config["tools"]).lower()
         if config["tools"] in TOOL_SELECTIONS:
@@ -76,12 +77,14 @@ def main():
     build = yes("Build now?")
     ram = yes("Initialize RAM now?")
     # Exclusive creation and copytree both refuse existing destinations.
-    with (root / ".workshop").open("x", encoding="utf-8") as stream:
+    (root / ".workshop").mkdir()
+    with project_path(root, "config").open("x", encoding="utf-8") as stream:
         for key, value in config.items():
             stream.write(f"{key} = {json.dumps(value, ensure_ascii=False)}\n")
-    shutil.copytree(source, root / "recipe")
+    project_path(root, "lock").touch(exist_ok=False)
+    shutil.copytree(source, root / recipe)
     from workshop_update import record_generated
-    record_generated(root, "recipe", source, selection if selection != "local" else None)
+    record_generated(root, recipe, source, selection if selection != "local" else None)
     # ram start expects these; create them up front so the layout is complete.
     checkpoint.mkdir(parents=True, exist_ok=True)
     (root / ".workshop-ram").mkdir(exist_ok=True)
@@ -89,7 +92,7 @@ def main():
     for enabled, args in ((build, ["build"]), (ram, ["ram", "start"])):
         if not enabled:
             continue
-        result = subprocess.run([str(INSTALL / "workshop"), *args], cwd=root)
+        result = subprocess.run([str(INSTALL / "bin/workshop"), *args], cwd=root)
         if result.returncode:
             print("Setup incomplete; generated configuration and recipe were retained.", file=sys.stderr)
             print(f"Retry: cd {shlex.quote(str(root))} && workshop {shlex.join(args)}", file=sys.stderr)

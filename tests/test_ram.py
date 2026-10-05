@@ -1,4 +1,4 @@
-"""Run with python3 -B test_ram.py; real rsync, mocked mounts/sudo/Docker."""
+"""Run with python3 -B tests/test_ram.py; real rsync, mocked mounts/sudo/Docker."""
 import os
 from pathlib import Path
 import signal
@@ -7,7 +7,7 @@ import tempfile
 import time
 
 
-INSTALL = Path(__file__).resolve().parent
+INSTALL = Path(__file__).resolve().parents[1] / "runtime"
 SETUP = r'''
 set -euo pipefail
 source "$INSTALL/ram-storage.sh"
@@ -98,6 +98,7 @@ ram_traps
 def fixture(root, ready=True, legacy=False):
     bridge = root / "docker-bridge"
     ram = root / ".workshop-ram"
+    (root / ".workshop").mkdir()
     bridge.mkdir()
     ram.mkdir()
     (bridge / "original").write_text("disk checkpoint")
@@ -111,7 +112,7 @@ def fixture(root, ready=True, legacy=False):
             record.append("42")
             (root / "bridge-mounted").touch()
             (root / "bridge-mode").write_text("ro\n")
-        (root / ".workshop-ram-state").write_text("\n".join(record) + "\n")
+        (root / ".workshop/ram-state").write_text("\n".join(record) + "\n")
     return {**os.environ, "INSTALL": str(INSTALL), "WORKSHOP_ROOT": str(root)}
 
 
@@ -128,7 +129,7 @@ def main():
         assert (root / ".workshop-ram/original").read_text() == "disk checkpoint"
         assert (root / "docker-bridge/original").stat().st_mode & 0o777 == 0o640
         assert (root / "bridge-mode").read_text().strip() == "ro"
-        assert len((root / ".workshop-ram-state").read_text().splitlines()) == 7
+        assert len((root / ".workshop/ram-state").read_text().splitlines()) == 7
         assert "[5/5]" in result.stdout and "100%" in result.stdout
         assert "--info=progress2,stats1" in (root / "trace").read_text()
 
@@ -141,13 +142,25 @@ def main():
             assert not (root / "docker-bridge/original").exists()
             assert (root / "bridge-mode").read_text().strip() == "ro"
 
+    # The compatibility runtime still reads and writes the legacy state paths.
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        env = fixture(root)
+        (root / ".workshop/ram-state").rename(root / ".workshop-ram-state")
+        (root / ".workshop").rmdir()
+        (root / ".workshop").write_text("# legacy marker\n")
+        result = run('ram_save', env)
+        assert result.returncode == 0, result.stderr
+        assert (root / ".workshop-ram-state").is_file()
+        assert (root / "docker-bridge/new").read_text() == "RAM changes"
+
     for failure in ({"TEST_FAIL_COPY": "true"}, {"TEST_SYNC_RESULT": "1"}):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             result = run('ram_reset', {**fixture(root), **failure})
             assert result.returncode != 0
             assert (root / "ram-mounted").exists()
-            assert (root / ".workshop-ram-state").exists()
+            assert (root / ".workshop/ram-state").exists()
             assert (root / "bridge-mode").read_text().strip() == "ro"
             assert "umount" not in (root / "trace").read_text()
 
@@ -158,7 +171,7 @@ def main():
             assert result.returncode == 0, result.stderr
             assert not (root / "ram-mounted").exists()
             assert not (root / "bridge-mounted").exists()
-            assert not (root / ".workshop-ram-state").exists()
+            assert not (root / ".workshop/ram-state").exists()
             trace = (root / "trace").read_text()
             assert ("rsync " in trace) == (action != "purge")
             if action == "purge":
@@ -184,7 +197,7 @@ def main():
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             env = fixture(root)
-            state = root / ".workshop-ram-state"
+            state = root / ".workshop/ram-state"
             record = state.read_text().splitlines()
             if scenario in {"old-boot", "malformed", "missing", "released"}:
                 (root / "ram-mounted").unlink()
@@ -219,7 +232,7 @@ def main():
             root = Path(directory)
             env = fixture(root)
             if scenario == "unknown-live":
-                (root / ".workshop-ram-state").write_text("broken\n")
+                (root / ".workshop/ram-state").write_text("broken\n")
             elif scenario == "nested":
                 (root / "nested-mounted").touch()
             elif scenario == "elsewhere":
@@ -263,7 +276,7 @@ def main():
                 assert process.returncode == 128 + sig, (action, sig, stdout, stderr)
                 assert "finishing safely" in stderr
                 if action == "start":
-                    assert not (root / ".workshop-ram-state").exists()
+                    assert not (root / ".workshop/ram-state").exists()
                     assert not (root / "ram-mounted").exists()
                     assert not (root / "bridge-mounted").exists()
                 else:

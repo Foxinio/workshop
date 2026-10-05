@@ -6,4 +6,5 @@ docker-bridge-ram/
 .workshop-ram/
 .workshop-ram-state
 .workshop-ram-lock
+.workshop-generated.json
 __pycache__/

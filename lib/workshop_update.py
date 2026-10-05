@@ -14,9 +14,8 @@ import sys
 import tempfile
 import tomllib
 
-from workshop_config import DEFAULTS, INSTALL, project_root, read_toml, validate
+from workshop_config import DEFAULTS, INSTALL, project_root, project_path, warn_legacy, read_toml, validate
 
-METADATA = ".workshop-generated.json"
 MARKERS = re.compile(rb"(?m)^(?:<<<<<<< WORKSHOP CURRENT|======= WORKSHOP TEMPLATE|>>>>>>> WORKSHOP TEMPLATE)\r?$")
 FLAG = re.compile(r"(?m)^updating\s*=\s*(?:true|false)[ \t]*(?:#[^\n]*)?\n?")
 
@@ -59,7 +58,8 @@ def atomic_write(path, data, mode=None):
 
 
 def write_metadata(root, metadata):
-    atomic_write(safe_path(root, METADATA), (json.dumps(metadata, indent=2) + "\n").encode())
+    atomic_write(safe_path(root, project_path(root, "metadata").relative_to(root).as_posix()),
+                 (json.dumps(metadata, indent=2) + "\n").encode())
 
 
 def source_files(source):
@@ -86,7 +86,7 @@ def record_generated(root, recipe, source, bundled=None):
 
 
 def read_metadata(root, recipe):
-    path = safe_path(root, METADATA)
+    path = safe_path(root, project_path(root, "metadata").relative_to(root).as_posix())
     if not path.exists():
         return None
     metadata = json.loads(path.read_text())
@@ -237,7 +237,7 @@ def validate_files(root, config, recipe, names):
 
 
 def clean_config(root):
-    path = safe_path(root, ".workshop")
+    path = safe_path(root, project_path(root, "config").relative_to(root).as_posix())
     text = path.read_text()
     config = read_toml(path)
     flag = config.pop("updating", False)
@@ -277,17 +277,73 @@ def finish(root, config, clean, metadata, validated=False):
     metadata["files"] = metadata["pending"]["files"]
     del metadata["pending"]
     # Pending metadata keeps runtime blocked if clearing the flag is interrupted.
-    atomic_write(root / ".workshop", clean)
+    atomic_write(project_path(root, "config"), clean)
     write_metadata(root, metadata)
 
 
+def migrate_layout(root, lock):
+    """Move legacy assets while retaining the held session lock's inode."""
+    if (root / ".workshop").is_dir():
+        return
+    config, clean, flag = clean_config(root)
+    metadata = read_metadata(root, config["recipe"])
+    old_recipe = root / config["recipe"]
+    new_recipe = ".workshop/recipes/" + old_recipe.name
+    text = re.sub(r'''(?m)^((?:recipe|"recipe"|'recipe')\s*=\s*)("(?:[^"\\]|\\.)*"|'[^']*')''',
+                  lambda match: match[1] + json.dumps(new_recipe), clean.decode())
+    if tomllib.loads(text) != {**config, "recipe": new_recipe}:
+        raise ValueError("migration requires a top-level recipe assignment")
+    if flag:
+        text = "updating = true\n" + text
+    state = safe_path(root, ".workshop-ram-state")
+    old_metadata = safe_path(root, ".workshop-generated.json")
+    marker = root / ".workshop"
+    # Stage on the same filesystem and restore moved assets on failure.
+    with tempfile.TemporaryDirectory(prefix=".workshop-migrate-", dir=root) as directory:
+        stage = Path(directory)
+        target = stage / "layout"
+        target.mkdir()
+        (target / "recipes").mkdir()
+        atomic_write(target / "config.toml", text.encode(), stat.S_IMODE(marker.stat().st_mode))
+        if metadata is not None:
+            metadata["recipe"] = new_recipe
+            atomic_write(target / "generated.json", (json.dumps(metadata, indent=2) + "\n").encode(),
+                         stat.S_IMODE(old_metadata.stat().st_mode))
+        # Both lock names refer to the same inode throughout migration.
+        os.link(lock, target / "ram.lock")
+        moved = []
+        try:
+            for source, destination in ((old_recipe, target / "recipes" / old_recipe.name),
+                                        (state, target / "ram-state")):
+                if source.exists():
+                    source.rename(destination)
+                    moved.append((source, destination))
+            marker.rename(stage / "legacy-config")
+            try:
+                target.rename(marker)
+            except BaseException:
+                (stage / "legacy-config").rename(marker)
+                raise
+        except BaseException:
+            for source, destination in reversed(moved):
+                destination.rename(source)
+            raise
+        old_metadata.unlink(missing_ok=True)
+        lock.unlink()
+    print("Migrated legacy environment to .workshop/.")
+
+
 def run_update(root, force=False, finishing=False):
-    lock = safe_path(root, ".workshop-ram-lock")
+    warn_legacy(root)
+    lock = safe_path(root, project_path(root, "lock").relative_to(root).as_posix())
     with lock.open("a") as stream:
         try:
             fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ValueError("another session or storage command is active") from None
+        if lock != project_path(root, "lock"):
+            raise ValueError("project layout changed; retry workshop update")
+        migrate_layout(root, lock)
         config, clean, flag = clean_config(root)
         metadata = read_metadata(root, config["recipe"])
         if finishing:
@@ -327,7 +383,7 @@ def run_update(root, force=False, finishing=False):
             metadata["pending"] = {"files": sorted(templates), "prepared": False}
             write_metadata(root, metadata)
             if review or force:
-                atomic_write(root / ".workshop", b"updating = true\n" + clean)
+                atomic_write(project_path(root, "config"), b"updating = true\n" + clean)
             for name, data in outputs.items():
                 path = safe_path(destination, name)
                 if data is None:
@@ -340,7 +396,7 @@ def run_update(root, force=False, finishing=False):
                 print("Update prepared. Resolve Workshop markers in recipe files, then run workshop update --finish.")
                 return
             finish(root, config, clean, metadata, validated=True)
-        print('Update complete. To enable Claude/OpenCode, set tools = "both"/"all" in .workshop, then run workshop build.')
+        print('Update complete. To enable Claude/OpenCode, set tools = "both"/"all" in .workshop/config.toml, then run workshop build.')
         print("A saved maintained image still takes precedence; update its tools through workshop maintain if needed.")
 
 

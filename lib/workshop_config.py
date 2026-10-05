@@ -11,7 +11,8 @@ if sys.version_info < (3, 11):
     sys.exit("Workshop requires Python 3.11 or newer.")
 import tomllib
 
-INSTALL = Path(__file__).resolve().parent
+INSTALL = Path(__file__).resolve().parent.parent
+RUNTIME = INSTALL / "runtime"
 DEFAULTS = {
     "checkpoint": "docker-bridge",
     "ram_capacity": "8G",
@@ -46,6 +47,10 @@ def validate(root, config):
     if config["tools"] not in TOOL_SELECTIONS:
         raise ValueError("tools must be " + ", ".join(TOOL_SELECTIONS))
     recipe = (root / config["recipe"]).resolve()
+    if (root / ".workshop").is_dir():
+        recipes = root / ".workshop" / "recipes"
+        if recipes.is_symlink() or recipes.resolve() not in recipe.parents:
+            raise ValueError("recipe must be inside .workshop/recipes")
     checkpoint = (root / config["checkpoint"]).resolve()
     ram = root / ".workshop-ram"
     if any(ord(c) < 32 for path in (root, recipe, checkpoint) for c in str(path)):
@@ -80,14 +85,35 @@ def project_root():
     return root
 
 
-def check_update(root):
-    if (root / ".workshop").is_symlink():
+def project_path(root, kind):
+    marker = root / ".workshop"
+    if marker.is_symlink():
         raise ValueError(".workshop must not be a symlink")
-    config = read_toml(root / ".workshop")
+    if marker.is_file():
+        return root / {"config": ".workshop", "metadata": ".workshop-generated.json",
+                       "state": ".workshop-ram-state", "lock": ".workshop-ram-lock"}[kind]
+    if marker.is_dir():
+        path = marker / {"config": "config.toml", "metadata": "generated.json",
+                         "state": "ram-state", "lock": "ram.lock"}[kind]
+        if path.is_symlink():
+            raise ValueError(f"Workshop {kind} must not be a symlink")
+        return path
+    raise ValueError(".workshop must be a file or directory")
+
+
+def warn_legacy(root):
+    project_path(root, "config")
+    if (root / ".workshop").is_file():
+        print("Workshop: deprecated legacy layout. This mode is no longer developed "
+              "and may not work with newer features. Run workshop update to migrate.", file=sys.stderr)
+
+
+def check_update(root):
+    config = read_toml(project_path(root, "config"))
     flag = config.get("updating", False)
     if not isinstance(flag, bool):
         raise ValueError("updating must be a boolean")
-    metadata = root / ".workshop-generated.json"
+    metadata = project_path(root, "metadata")
     if metadata.is_symlink():
         raise ValueError("generated-file metadata must not be a symlink")
     pending = metadata.exists() and "pending" in json.loads(metadata.read_text())
@@ -97,8 +123,9 @@ def check_update(root):
 
 def project_environment():
     root = project_root()
+    warn_legacy(root)
     check_update(root)
-    config = read_toml(root / ".workshop")
+    config = read_toml(project_path(root, "config"))
     config.pop("updating", None)
     config.setdefault("tools", "codex")
     recipe, checkpoint = validate(root, config)
@@ -108,6 +135,7 @@ def project_environment():
     env = os.environ.copy()
     env.update({
         "WORKSHOP_ROOT": str(root),
+        "WORKSHOP_LAYOUT": "legacy" if (root / ".workshop").is_file() else "current",
         "WORKSHOP_ID": identity,
         "WORKSHOP_RECIPE": str(recipe),
         "CODEX_BRIDGE_DIR": str(checkpoint),
@@ -140,11 +168,11 @@ def main():
     root, env = project_environment()
     if command in TOOLS:
         if command not in TOOL_SELECTIONS[env["WORKSHOP_TOOLS"]]:
-            raise ValueError(f"{command} is not selected; update tools in .workshop and rebuild the recipe")
+            raise ValueError(f"{command} is not selected; update tools in the Workshop configuration and rebuild the recipe")
         args = [command, *args]
         command = "session"
     os.chdir(root)
-    os.execvpe("bash", ["bash", str(INSTALL / f"{command}.sh"), *args], env)
+    os.execvpe("bash", ["bash", str(RUNTIME / f"{command}.sh"), *args], env)
 
 
 if __name__ == "__main__":

@@ -3,8 +3,13 @@
 
 ram_paths() {
     RAM_DIR="${WORKSHOP_ROOT}/.workshop-ram"
-    RAM_STATE="${WORKSHOP_ROOT}/.workshop-ram-state"
-    RAM_LOCK="${WORKSHOP_ROOT}/.workshop-ram-lock"
+    if [[ -d "$WORKSHOP_ROOT/.workshop" && ! -L "$WORKSHOP_ROOT/.workshop" ]]; then
+        RAM_STATE="$WORKSHOP_ROOT/.workshop/ram-state"
+        RAM_LOCK="$WORKSHOP_ROOT/.workshop/ram.lock"
+    else
+        RAM_STATE="$WORKSHOP_ROOT/.workshop-ram-state"
+        RAM_LOCK="$WORKSHOP_ROOT/.workshop-ram-lock"
+    fi
 }
 
 ram_error() { echo "RAM home: $*" >&2; return 1; }
@@ -54,9 +59,13 @@ ram_lock() {
     [[ ! -L "$RAM_LOCK" ]] || { ram_error "lock must not be a symlink"; return 1; }
     exec {RAM_LOCK_FD}>"$RAM_LOCK"
     flock -n "$RAM_LOCK_FD" || { ram_error "another session or storage command is active"; return 1; }
-    if [[ -f "$WORKSHOP_ROOT/.workshop" ]]; then
-        python3 "$SCRIPT_DIR/workshop_config.py" --check-update "$WORKSHOP_ROOT" || return 1
+    if [[ ${WORKSHOP_LAYOUT:-} == legacy && -d "$WORKSHOP_ROOT/.workshop" ]]; then
+        ram_error "project layout changed; retry the Workshop command"; return 1
     fi
+    if [[ -e "$WORKSHOP_ROOT/.workshop" ]]; then
+        python3 "$SCRIPT_DIR/../lib/workshop_config.py" --check-update "$WORKSHOP_ROOT" || return 1
+    fi
+    ram_paths
 }
 
 ram_read_state() {

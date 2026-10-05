@@ -15,12 +15,17 @@ Keep this checkout installed, and symlink its executable into a directory on PAT
 
 ```bash
 mkdir -p ~/.local/bin
-ln -s "$(pwd)/workshop" ~/.local/bin/workshop
+ln -s "$(pwd)/bin/workshop" ~/.local/bin/workshop
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Run the symlink command from this checkout. Generated projects contain no runtime
 scripts and continue to use this shared installation.
+
+The checkout groups the CLI in `bin/`, Python modules in `lib/`, shell runtime
+and Compose in `runtime/`, bundled templates in `recipes/`, and checks in `tests/`.
+If you installed the previous root executable, repoint your PATH symlink to
+`bin/workshop` using the command above (remove the old symlink first).
 
 ## Create an environment
 
@@ -54,10 +59,10 @@ project, and prints the command to retry. Do not rerun init to retry setup.
 
 ## Configuration and layout
 
-The generated `.workshop` is TOML:
+The generated `.workshop/config.toml` is TOML:
 
 ```toml
-recipe = "recipe"
+recipe = ".workshop/recipes/generic"
 checkpoint = "docker-bridge"
 ram_capacity = "8G"
 compression = "zstd"
@@ -78,28 +83,29 @@ tools = "both"
 
 All fields are required except `tools`, which defaults to `codex` for older configurations;
 the optional boolean `updating` is reserved for updates; unknown fields are errors. Relative paths resolve against
-the directory containing `.workshop`. Commands search upward for the nearest
+the environment root (the parent of `.workshop/`). Commands search upward for the nearest
 configuration, so they also work from project subdirectories. Configuration is
 parsed with Python's standard-library `tomllib`, never evaluated as shell code.
 
 ```text
 my-environment/
-├── .workshop
-├── .workshop-generated.json  recipe origin and generated paths; no content snapshots
-├── recipe/
-│   ├── Dockerfile
-│   └── defaults.toml
-├── docker-bridge/          disk checkpoint
-├── .workshop-ram/          mounted RAM home → container /home/codex
-│   └── work/              container working directory
-├── .workshop-ram-state     device identity, boot ID, readiness and checkpoint mount ID
-└── .workshop-ram-lock      one active session/storage operation
+├── .workshop/
+│   ├── config.toml        project settings
+│   ├── generated.json     recipe origin and managed paths; no content snapshots
+│   ├── ram-state          device identity, boot ID, readiness and checkpoint mount ID
+│   ├── ram.lock           one active session/storage operation
+│   └── recipes/
+│       └── generic/
+│           ├── Dockerfile
+│           └── defaults.toml
+├── docker-bridge/         disk checkpoint
+└── .workshop-ram/         mounted RAM home → container /home/codex
+    └── work/             container working directory
 ```
 
 Put source files under `docker-bridge/work/` **before** RAM initialization, or
 under `.workshop-ram/work/` after initialization. Container settings and login
-state live in the RAM home and are checkpointed too. Keep RAM,
-checkpoints, state and lock files out of version control. Each environment must
+state live in the RAM home and are checkpointed too. Keep RAM, checkpoints, `.workshop/ram-state` and `.workshop/ram.lock` out of version control. Each environment must
 use its own checkpoint directory; intentionally sharing one is unsupported.
 
 ## Recipes and builds
@@ -116,9 +122,9 @@ To add a bundled recipe, add a directory under `recipes/` with both required fil
 init discovers it automatically. Incomplete directories are omitted. The name
 `local` is reserved for selecting an external recipe directory. If `generic` is
 absent, the first discovered name in sorted order is the default (or `local` if none).
-Initialization copies that directory to `recipe/`; it rejects symlink assets.
+Initialization copies that directory to `.workshop/recipes/<selection>/`; it rejects symlink assets.
 No maintained-image templates or home snapshots are copied.
-`defaults.toml` is used only during init; edit `.workshop` afterward.
+`defaults.toml` is used only during init; edit `.workshop/config.toml` afterward.
 
 ```bash
 workshop build
@@ -148,7 +154,7 @@ OpenCode is installed using `npm install --global opencode-ai`, as documented in
 All selected tools share the same image and saved home. Each Compose service explicitly
 selects its own executable, including when using a maintained image.
 To add Claude to an existing environment, run `workshop update` as described below,
-set `tools = "both"` in `.workshop`, then run `workshop build`. If a maintained image takes precedence,
+set `tools = "both"` in `.workshop/config.toml`, then run `workshop build`. If a maintained image takes precedence,
 install Claude there with `sudo npm install --global @anthropic-ai/claude-code`
 inside `workshop maintain` and exit successfully.
 To add OpenCode, update the environment, use `tools = "all"` (or `"opencode"` for OpenCode alone),
@@ -175,7 +181,7 @@ workshop update --force  # replace generated recipe files without review
 ```
 
 Updates use the newest templates in this installed checkout; update the installation
-first to obtain newer templates. They preserve `.workshop` settings and comments,
+first to obtain newer templates. They preserve `.workshop/config.toml` settings and comments,
 including selected tools, checkpoint paths and limits. Missing configuration fields
 are appended; a missing `tools` field becomes `codex` to preserve legacy behavior.
 Updating does not build or change images. Rebuild separately after selecting tools.
@@ -188,7 +194,7 @@ either version or combine them, removing all marker lines. For a removed templat
 file, delete it or retain its contents; retained files become user-owned after finish.
 Changed binary assets require `--force`.
 
-During review, `.workshop` contains `updating = true`; build, sessions, maintenance
+During review, `.workshop/config.toml` contains `updating = true`; build, sessions, maintenance
 and every RAM command (including status) refuse to run. Help and update commands
 remain available. Pending metadata also blocks commands, so removing the flag alone
 does not complete an update. `--finish` leaves the environment blocked if syntax
@@ -197,7 +203,7 @@ it intentionally replaces edits to managed recipe files. Updates refuse active
 sessions, storage operations and builds through the existing environment lock.
 
 New environments record the source recipe and copied file paths in
-`.workshop-generated.json`; no original file contents or historical templates are
+`.workshop/generated.json`; no original file contents or historical templates are
 stored. Older environments prompt once for their original bundled recipe or a
 local source directory. Initially only their `Dockerfile` and `defaults.toml` are
 recognized as generated recipe files. Other existing files remain protected:
@@ -211,7 +217,7 @@ future updates, but finishing a prepared review does not need the source directo
 Validation requires Docker access and **Docker Buildx 0.15+**, using `buildx build
 --check` to parse every managed Dockerfile without running its build steps. Checks
 may download frontend or image metadata; missing dependencies or failed checks
-prevent completion. `.workshop` and recipe defaults receive TOML and field checks.
+prevent completion. `.workshop/config.toml` and recipe defaults receive TOML and field checks.
 Other managed TOML, JSON and YAML files are parsed; YAML requires `python3-yaml`
 (PyYAML). Compose YAML also passes `docker compose config`. Generated shell and
 Python files receive syntax checks. Unsupported `.conf`, `.cfg`, `.ini` and
@@ -314,6 +320,22 @@ do not reset an unverified device or mount over data.
 Moving an environment changes its Docker identity. Stop RAM and sessions before
 moving it, and migrate any maintained image explicitly if needed.
 
+## Legacy project layouts
+
+A regular `.workshop` text file identifies a legacy project; a `.workshop/`
+directory identifies the current layout. Commands continue to use legacy paths
+and print a deprecation warning: this mode is no longer developed and may not
+work with newer features.
+
+`workshop update` first migrates a legacy project, then performs its usual update.
+This also applies to `--force` and `--finish`. Migration preserves configuration
+settings and comments, recipe assets (including your edits and untracked files),
+pending review metadata, RAM state and the existing lock. Recipes move to
+`.workshop/recipes/<old-directory-name>/`; configuration moves to
+`.workshop/config.toml`. Checkpoint and RAM mount paths stay the same. An active
+Workshop session or storage operation blocks migration; retry after it exits.
+A later template validation failure leaves the migrated layout available for retry.
+
 ## Existing checkout data
 
 This conversion does not import or delete old `docker-bridge` checkpoints,
@@ -329,12 +351,12 @@ Do not run old and new environments against the same writable checkpoint.
 Run the tool-selection checks and basic repository checks:
 
 ```bash
-for file in workshop *.sh; do bash -n "$file" || exit; done
-python3 -B test_workshop.py
-python3 -B test_update.py
-python3 -B test_ram.py
-shellcheck -x workshop *.sh
-python3 -B -c 'import ast,pathlib,tomllib; [ast.parse(p.read_text()) for p in pathlib.Path(".").glob("workshop_*.py")]; [tomllib.loads(p.read_text()) for p in pathlib.Path("recipes").glob("*/defaults.toml")]'
+for file in bin/workshop runtime/*.sh; do bash -n "$file" || exit; done
+python3 -B tests/test_workshop.py
+python3 -B tests/test_update.py
+python3 -B tests/test_ram.py
+shellcheck -x -P runtime bin/workshop runtime/*.sh
+python3 -B -c 'import ast,pathlib,tomllib; [ast.parse(p.read_text()) for p in pathlib.Path("lib").glob("workshop_*.py")]; [tomllib.loads(p.read_text()) for p in pathlib.Path("recipes").glob("*/defaults.toml")]'
 git diff --check
 ```
 

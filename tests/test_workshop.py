@@ -1,4 +1,4 @@
-"""Run with python3 -B test_workshop.py; no Docker daemon or sudo needed."""
+"""Run with python3 -B tests/test_workshop.py; no Docker daemon or sudo needed."""
 import contextlib
 import io
 import json
@@ -8,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 
 import workshop_config as config
 import workshop_init as init
@@ -23,7 +25,10 @@ def main():
                  patch("builtins.input", side_effect=lambda _: next(answers)), \
                  contextlib.redirect_stdout(io.StringIO()):
                 assert init.main() == 0
-            settings = config.read_toml(root / ".workshop")
+            assert {p.name for p in root.iterdir()} == {".workshop", "docker-bridge", ".workshop-ram"}
+            assert (root / ".workshop/recipes/generic/Dockerfile").is_file()
+            assert (root / ".workshop/ram.lock").is_file()
+            settings = config.read_toml(config.project_path(root, "config"))
             assert settings["tools"] == (selection or "both")
             with patch.object(Path, "cwd", return_value=root):
                 _, env = config.project_environment()
@@ -33,7 +38,7 @@ def main():
                         if tool in config.TOOL_SELECTIONS[settings["tools"]]:
                             config.main()
                             assert execute.call_args.args[1] == [
-                                "bash", str(config.INSTALL / "session.sh"), tool, "a b", "--help"
+                                "bash", str(config.RUNTIME / "session.sh"), tool, "a b", "--help"
                             ]
                         else:
                             try:
@@ -65,18 +70,18 @@ exec bash "$@"
                         (["--", "exec", "--", "a b", ""], ["exec", "--", "a b", ""]),
                     ):
                         result = subprocess.run(
-                            ["bash", "-c", launcher, "test", str(config.INSTALL / "workshop"), tool, *passed],
+                            ["bash", "-c", launcher, "test", str(config.INSTALL / "bin/workshop"), tool, *passed],
                             cwd=root, capture_output=True, text=True,
                         )
                         assert result.returncode == 0, result.stderr
                         docker_args = json.loads(result.stdout.splitlines()[-1])
                         assert docker_args == [
                             "docker", "compose", "--env-file", "/dev/null", "--file",
-                            str(config.INSTALL / "compose.yaml"), "run", "--name",
+                            str(config.RUNTIME / "compose.yaml"), "run", "--name",
                             env["WORKSHOP_ID"] + "-session", "--pull", "never", tool, *forwarded,
                         ]
                     result = subprocess.run(
-                        [str(config.INSTALL / "workshop"), tool, "--unknown", "--", "--help"],
+                        [str(config.INSTALL / "bin/workshop"), tool, "--unknown", "--", "--help"],
                         cwd=root, capture_output=True, text=True,
                     )
                     assert result.returncode != 0 and "before --" in result.stderr
@@ -85,7 +90,7 @@ exec bash "$@"
                          patch.object(os, "chdir"), patch.object(os, "execvpe") as execute:
                         config.main()
                         assert execute.call_args.args[1] == [
-                            "bash", str(config.INSTALL / "ram.sh"), action
+                            "bash", str(config.RUNTIME / "ram.sh"), action
                         ]
                 # Older configurations retain their Codex-only behavior.
                 del settings["tools"]
@@ -95,7 +100,7 @@ exec bash "$@"
                        HOST_UID="1000", HOST_GID="1000")
             result = subprocess.run(
                 ["docker", "compose", "--env-file", "/dev/null", "-f",
-                 str(config.INSTALL / "compose.yaml"), "config", "--format", "json"],
+                 str(config.RUNTIME / "compose.yaml"), "config", "--format", "json"],
                 env=env, check=True, capture_output=True, text=True,
             )
             services = json.loads(result.stdout)["services"]

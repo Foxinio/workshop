@@ -25,7 +25,7 @@ def main():
                  patch("builtins.input", side_effect=lambda _: next(answers)), \
                  contextlib.redirect_stdout(io.StringIO()):
                 assert init.main() == 0
-            assert {p.name for p in root.iterdir()} == {".workshop", "docker-bridge", ".workshop-ram"}
+            assert {p.name for p in root.iterdir()} == {".workshop", "docker-bridge"}
             assert (root / ".workshop/recipes/generic/Dockerfile").is_file()
             assert (root / ".workshop/ram.lock").is_file()
             settings = config.read_toml(config.project_path(root, "config"))

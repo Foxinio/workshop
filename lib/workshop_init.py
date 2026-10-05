@@ -85,9 +85,8 @@ def main():
     shutil.copytree(source, root / recipe)
     from workshop_update import record_generated
     record_generated(root, recipe, source, selection if selection != "local" else None)
-    # ram start expects these; create them up front so the layout is complete.
+    # RAM startup creates its mount directory when needed.
     checkpoint.mkdir(parents=True, exist_ok=True)
-    (root / ".workshop-ram").mkdir(exist_ok=True)
     print(f"Created Workshop environment in {root}", flush=True)
     for enabled, args in ((build, ["build"]), (ram, ["ram", "start"])):
         if not enabled:

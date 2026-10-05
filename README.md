@@ -105,7 +105,9 @@ my-environment/
 
 Put source files under `docker-bridge/work/` **before** RAM initialization, or
 under `.workshop-ram/work/` after initialization. Container settings and login
-state live in the RAM home and are checkpointed too. Keep RAM, checkpoints, `.workshop/ram-state` and `.workshop/ram.lock` out of version control. Each environment must
+state live in the RAM home and are checkpointed too. Startup creates
+`.workshop-ram/`; stop, reset and purge remove it after unmounting.
+Keep RAM, checkpoints, `.workshop/ram-state` and `.workshop/ram.lock` out of version control. Each environment must
 use its own checkpoint directory; intentionally sharing one is unsupported.
 
 ## Recipes and builds

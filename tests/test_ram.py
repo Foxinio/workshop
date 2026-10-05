@@ -70,6 +70,8 @@ sudo() {
                 rm "$WORKSHOP_ROOT/bridge-mounted"
             else
                 rm "$WORKSHOP_ROOT/ram-mounted"
+                # Unmounting exposes the empty directory beneath the RAM filesystem.
+                command find "$RAM_DIR" -mindepth 1 -delete
             fi ;;
         cat) echo 0 ;;
         blkid) echo "${TEST_UUID:-uuid}" ;;
@@ -106,10 +108,10 @@ def fixture(root, ready=True, legacy=False):
     ram = root / ".workshop-ram"
     (root / ".workshop").mkdir()
     bridge.mkdir()
-    ram.mkdir()
     (bridge / "original").write_text("disk checkpoint")
     (bridge / "original").chmod(0o640)
     if ready:
+        ram.mkdir()
         (ram / "new").write_text("RAM changes")
         (root / "ram-mounted").touch()
         record = [Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
@@ -128,16 +130,21 @@ def run(script, env, **kwargs):
 
 
 def main():
-    with tempfile.TemporaryDirectory() as directory:
-        root = Path(directory)
-        result = run('ram_start; ram_require', fixture(root, ready=False))
-        assert result.returncode == 0, result.stderr
-        assert (root / ".workshop-ram/original").read_text() == "disk checkpoint"
-        assert (root / "docker-bridge/original").stat().st_mode & 0o777 == 0o640
-        assert (root / "bridge-mode").read_text().strip() == "ro"
-        assert len((root / ".workshop/ram-state").read_text().splitlines()) == 7
-        assert "[5/5]" in result.stdout and "100%" in result.stdout
-        assert "--info=progress2,stats1" in (root / "trace").read_text()
+    for existing_directory in (False, True):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = fixture(root, ready=False)
+            if existing_directory:
+                (root / ".workshop-ram").mkdir()
+            result = run('ram_start; ram_require; ram_start', env)
+            assert result.returncode == 0, result.stderr
+            assert (root / ".workshop-ram/original").read_text() == "disk checkpoint"
+            assert (root / "docker-bridge/original").stat().st_mode & 0o777 == 0o640
+            assert (root / "bridge-mode").read_text().strip() == "ro"
+            assert len((root / ".workshop/ram-state").read_text().splitlines()) == 7
+            assert "[5/5]" in result.stdout and "100%" in result.stdout
+            assert "already ready" in result.stdout
+            assert "--info=progress2,stats1" in (root / "trace").read_text()
 
     for legacy in (False, True):
         with tempfile.TemporaryDirectory() as directory:
@@ -178,6 +185,7 @@ def main():
             assert not (root / "ram-mounted").exists()
             assert not (root / "bridge-mounted").exists()
             assert not (root / ".workshop/ram-state").exists()
+            assert not (root / ".workshop-ram").exists()
             trace = (root / "trace").read_text()
             assert ("rsync " in trace) == (action != "purge")
             if action == "purge":
@@ -256,7 +264,7 @@ ram_unmount "$RAM_DIR" --why
             result = run('ram_purge', env)
             assert result.returncode == 0, (scenario, result.stderr)
             assert not state.exists()
-            assert not any((root / ".workshop-ram").iterdir())
+            assert not (root / ".workshop-ram").exists()
             trace = (root / "trace").read_text()
             assert "rsync " not in trace
             if scenario in {"old-boot", "malformed", "missing"}:

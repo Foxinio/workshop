@@ -213,7 +213,7 @@ ram_start() {
     trap 'trap "" INT TERM HUP; echo "Initialization failed; releasing newly allocated $RAM_DEVICE" >&2;
           if ! mountpoint -q "$RAM_DIR" || sudo umount "$RAM_DIR"; then
               if [[ $RAM_CHECKPOINT_CREATED == true ]]; then sudo umount "$BRIDGE_DIR" || exit 1; fi
-              if sudo zramctl --reset "$RAM_DEVICE"; then rm -f -- "$RAM_STATE"; fi
+              if sudo zramctl --reset "$RAM_DEVICE"; then rm -f -- "$RAM_STATE"; rmdir -- "$RAM_DIR"; fi
           fi' EXIT
     echo "[3/5] Formatting $RAM_DEVICE and protecting the disk checkpoint..."
     ram_run sudo zramctl --algorithm "${ZRAM_ALGORITHM:-zstd}" --size "${ZRAM_SIZE:-8G}" "$RAM_DEVICE"
@@ -233,12 +233,14 @@ ram_start() {
     echo "[5/5] RAM home ready: $RAM_DIR. Use workshop codex, workshop claude, workshop opencode or workshop maintain."
 }
 
+# shellcheck disable=SC2120 # ram.sh passes the optional --why argument.
 ram_stop() {
     ram_save || return 1
     ram_release "$@"
 }
 
 ram_reset() {
+    # shellcheck disable=SC2119 # Reset deliberately omits stop diagnostics.
     ram_stop || {
         ram_error "reset could not complete; retry after fixing the error, or use workshop ram purge to discard RAM"; return 1;
     }
@@ -293,10 +295,7 @@ ram_purge() {
         }
     fi
     echo "Discarding unsaved RAM changes; keeping the disk checkpoint untouched."
-    ram_release || return 1
-    if [[ -d "$RAM_DIR" ]]; then
-        sudo find "$RAM_DIR" -mindepth 1 -delete || return 1
-    fi
+    ram_release --purge
 }
 
 ram_unmount() {
@@ -320,6 +319,12 @@ ram_release() {
     trap '' INT TERM HUP
     echo "Unmounting RAM and restoring writable disk access..."
     if mountpoint -q "$RAM_DIR"; then ram_unmount "$RAM_DIR" "${1:-}" || return 1; fi
+    if [[ -d "$RAM_DIR" ]]; then
+        if [[ ${1:-} == --purge ]]; then
+            sudo find "$RAM_DIR" -mindepth 1 -delete || return 1
+        fi
+        rmdir -- "$RAM_DIR" || return 1
+    fi
     if [[ -n "$RAM_CHECKPOINT_ID" ]] && mountpoint -q "$BRIDGE_DIR"; then
         ram_unmount "$BRIDGE_DIR" "${1:-}" || return 1
     fi

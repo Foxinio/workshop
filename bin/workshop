@@ -7,6 +7,6 @@ case "$command" in
     update) exec python3 "$SCRIPT_DIR/../lib/workshop_update.py" "$@" ;;
     init) exec python3 "$SCRIPT_DIR/../lib/workshop_init.py" "$@" ;;
     build|codex|claude|opencode|maintain|ram) exec python3 "$SCRIPT_DIR/../lib/workshop_config.py" "$command" "$@" ;;
-		help|-h|--help) echo 'Usage: workshop {init|update [--finish|--force]|build|codex [--] [arguments…]|claude [--] [arguments…]|opencode [--] [arguments…]|maintain|ram (start|save|stop|reset|purge|status)}' ;;
+		help|-h|--help) echo 'Usage: workshop {init|update [--finish|--force]|build|codex [--] [arguments…]|claude [--] [arguments…]|opencode [--] [arguments…]|maintain|ram (start|save|stop [--why]|reset|purge|status)}' ;;
     *) echo "Unknown Workshop command: $command" >&2; exit 2 ;;
 esac

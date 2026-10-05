@@ -62,6 +62,10 @@ sudo() {
                 *) touch "$WORKSHOP_ROOT/ram-mounted" ;;
             esac ;;
         umount)
+            if [[ $1 == "${TEST_BUSY:-}" ]]; then
+                echo "umount: $1: target is busy" >&2
+                return 32
+            fi
             if [[ $1 == "$BRIDGE_DIR" ]]; then
                 rm "$WORKSHOP_ROOT/bridge-mounted"
             else
@@ -74,6 +78,7 @@ sudo() {
             [[ ${TEST_FAIL_COPY:-false} != true ]] || return 23
             command rsync "$@" ;;
         sync) return "${TEST_SYNC_RESULT:-0}" ;;
+        lsof) echo "COMMAND PID USER FD TYPE NAME: bash 1234 developer cwd DIR work"; return 1 ;;
         chown) command chown "$@" ;;
         find) command find "$@" ;;
         -v|modprobe|zramctl|mkfs.ext4) : ;;
@@ -91,6 +96,7 @@ docker() {
         *) return 1 ;;
     esac
 }
+lsof() { :; }
 ram_traps
 '''
 
@@ -176,6 +182,38 @@ def main():
             assert ("rsync " in trace) == (action != "purge")
             if action == "purge":
                 assert (root / "docker-bridge/original").read_text() == "disk checkpoint"
+
+    for target in (".workshop-ram", "docker-bridge", None):
+        for why in (False, True):
+            with tempfile.TemporaryDirectory(prefix="workshop ram ") as directory:
+                root = Path(directory)
+                env = fixture(root)
+                if target:
+                    env["TEST_BUSY"] = str(root / target)
+                result = run('ram_stop' + (' --why' if why else ''), env)
+                assert (result.returncode != 0) == bool(target), result.stderr
+                trace = (root / "trace").read_text()
+                assert ("lsof +D " in trace) == bool(target and why)
+                assert ("bash 1234 developer cwd DIR work" in result.stderr) == bool(target and why)
+                assert (root / ".workshop/ram-state").exists() == bool(target)
+                if target:
+                    assert "target is busy" in result.stderr
+                    assert "zramctl --reset" not in trace
+                    assert (root / "bridge-mode").read_text().strip() == "ro"
+                    if why:
+                        assert "lsof +D " + str(root / target) in trace
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        result = run('''
+unset -f lsof
+sudo() { if [[ $1 == umount ]]; then return 32; fi; "$@"; }
+exec 3< "$RAM_DIR/new"
+ram_unmount "$RAM_DIR" --why
+''', fixture(root))
+        assert result.returncode == 32, result.stderr
+        assert "COMMAND" in result.stderr, result.stderr
+        assert str(root / ".workshop-ram/new") in result.stderr, result.stderr
 
     for action in ("save", "reset", "purge"):
         with tempfile.TemporaryDirectory() as directory:

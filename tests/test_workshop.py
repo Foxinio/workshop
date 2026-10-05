@@ -85,13 +85,32 @@ exec bash "$@"
                         cwd=root, capture_output=True, text=True,
                     )
                     assert result.returncode != 0 and "before --" in result.stderr
-                for action in ("reset", "purge"):
-                    with patch.object(sys, "argv", ["workshop", "ram", action]), \
+                for args in (["reset"], ["purge"], ["stop", "--why"]):
+                    with patch.object(sys, "argv", ["workshop", "ram", *args]), \
                          patch.object(os, "chdir"), patch.object(os, "execvpe") as execute:
                         config.main()
                         assert execute.call_args.args[1] == [
-                            "bash", str(config.RUNTIME / "ram.sh"), action
+                            "bash", str(config.RUNTIME / "ram.sh"), *args
                         ]
+                ram_launcher = r'''
+source() { :; }
+ram_traps() { :; }
+ram_lock() { :; }
+ram_stop() { printf '%s\n' "$*"; }
+export -f source ram_traps ram_lock ram_stop
+exec bash "$@"
+'''
+                result = subprocess.run(
+                    ["bash", "-c", ram_launcher, "test", str(config.INSTALL / "bin/workshop"),
+                     "ram", "stop", "--why"], cwd=root, capture_output=True, text=True,
+                )
+                assert result.returncode == 0 and result.stdout == "--why\n", result.stderr
+                for args in (["save", "--why"], ["stop", "--why", "--why"], ["stop", "--unknown"]):
+                    result = subprocess.run(
+                        [str(config.INSTALL / "bin/workshop"), "ram", *args],
+                        cwd=root, capture_output=True, text=True,
+                    )
+                    assert result.returncode != 0 and "usage:" in result.stderr
                 # Older configurations retain their Codex-only behavior.
                 del settings["tools"]
                 with patch.object(config, "read_toml", return_value=settings):

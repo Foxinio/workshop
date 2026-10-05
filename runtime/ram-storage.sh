@@ -235,7 +235,7 @@ ram_start() {
 
 ram_stop() {
     ram_save || return 1
-    ram_release
+    ram_release "$@"
 }
 
 ram_reset() {
@@ -299,13 +299,29 @@ ram_purge() {
     fi
 }
 
+ram_unmount() {
+    local target=$1 result
+    sudo umount "$target" || {
+        result=$?
+        if [[ ${2:-} == --why ]]; then
+            echo "Processes using $target:" >&2
+            if command -v lsof >/dev/null; then
+                sudo lsof +D "$target" >&2 || true
+            else
+                echo "Install lsof to list processes using this directory." >&2
+            fi
+        fi
+        return "$result"
+    }
+}
+
 ram_release() {
     # Finish the short release sequence after saving or explicitly discarding RAM.
     trap '' INT TERM HUP
     echo "Unmounting RAM and restoring writable disk access..."
-    if mountpoint -q "$RAM_DIR"; then sudo umount "$RAM_DIR" || return 1; fi
+    if mountpoint -q "$RAM_DIR"; then ram_unmount "$RAM_DIR" "${1:-}" || return 1; fi
     if [[ -n "$RAM_CHECKPOINT_ID" ]] && mountpoint -q "$BRIDGE_DIR"; then
-        sudo umount "$BRIDGE_DIR" || return 1
+        ram_unmount "$BRIDGE_DIR" "${1:-}" || return 1
     fi
     if [[ -n "$RAM_DEVICE" ]]; then sudo zramctl --reset "$RAM_DEVICE" || return 1; fi
     rm -f -- "$RAM_STATE"

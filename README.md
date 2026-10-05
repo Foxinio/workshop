@@ -230,9 +230,14 @@ workshop ram start    # initialize from disk, or validate and reuse existing RAM
 workshop ram status   # filesystem capacity and zram consumption
 workshop ram save     # checkpoint, with no session or other writer active
 workshop ram stop     # checkpoint, unmount and release this environment's device
+workshop ram stop --why # also list filesystem users if unmounting fails
 workshop ram reset    # save and release, like stop; keep RAM if saving fails
 workshop ram purge    # discard RAM and stale state; keep disk checkpoint untouched
 ```
+
+`stop --why` uses `sudo lsof +D` to list processes with open files or working
+directories under the mount whose unmount failed. Install `lsof` to use this
+diagnostic; scanning a large directory tree can take time.
 
 While RAM is active, the disk checkpoint is protected by a read-only bind mount.
 Edit `.workshop-ram/work/`; saved file permissions and ACLs remain unchanged.

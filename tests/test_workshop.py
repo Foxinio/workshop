@@ -123,6 +123,8 @@ exec bash "$@"
                 env=env, check=True, capture_output=True, text=True,
             )
             services = json.loads(result.stdout)["services"]
+            for service in services.values():
+                assert service["tmpfs"] == ["/tmp:rw,exec,nosuid,nodev,size=2g"]
             for tool in ("codex", "claude", "opencode"):
                 assert services[tool]["entrypoint"] == [tool]
                 assert services[tool]["read_only"] is True

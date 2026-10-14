@@ -36,7 +36,7 @@ x-runtime: &runtime
         create_host_path: false
 
   tmpfs:
-    - /tmp:rw,nosuid,nodev,size=2g
+    - /tmp:rw,exec,nosuid,nodev,size=2g
 
   pids_limit: 2048
   mem_limit: ${WORKSHOP_MEMORY_LIMIT:?Run through workshop}

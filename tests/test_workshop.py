@@ -16,6 +16,23 @@ import workshop_init as init
 
 
 def main():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
+        answers = iter(("verilator", "", "", "no", "no", "no"))
+        with patch.object(Path, "cwd", return_value=root), \
+             patch.object(sys, "argv", ["workshop_init.py"]), \
+             patch("builtins.input", side_effect=lambda _: next(answers)), \
+             contextlib.redirect_stdout(io.StringIO()):
+            assert init.main() == 0
+        settings = config.read_toml(config.project_path(root, "config"))
+        recipe, _ = config.validate(root, settings)
+        assert settings["recipe"] == ".workshop/recipes/verilator"
+        assert (recipe / "Dockerfile").read_bytes() == (
+            config.INSTALL / "recipes/verilator/Dockerfile"
+        ).read_bytes()
+        assert json.loads(config.project_path(root, "metadata").read_text())["source"] == {
+            "kind": "bundled", "value": "verilator"
+        }
     for selection in ("", "codex", "claude", "opencode", "both", "all"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

@@ -112,10 +112,37 @@ use its own checkpoint directory; intentionally sharing one is unsupported.
 
 ## Recipes and builds
 
-Both bundled recipes retain Ubuntu 24.04 and provide the selected tools, Node, Python, Git and
+All bundled recipes retain Ubuntu 24.04 and provide the selected tools, Node, Python, Git and
 general command-line tools. Generic has no Java. Java includes JDKs 17 and 21,
 with 21 selected by default. Edit the generated Dockerfile to change packages,
 the Ubuntu version or Java defaults.
+
+Select **verilator** during `workshop init` to develop Verilator itself. It includes
+the build and contributor prerequisites from the
+[official installation guide](https://verilator.org/guide/latest/install.html):
+GCC/Make, Autoconf, Flex/Bison, Perl documentation, Clang and clang-format-18,
+CMake, GDB, gprof (via binutils), Graphviz, lcov, Bear and Python Clang bindings.
+It also includes ccache, mold, allocator/profiling libraries, NUMA tools,
+compression libraries, SystemC and Z3.
+
+Keep your Verilator checkout in the writable home. Inside a Workshop session,
+prepare its build and Python development dependencies with:
+
+```bash
+git clone https://github.com/verilator/verilator
+cd verilator
+autoconf
+./configure --prefix="$HOME/.local"
+make venv
+source .venv/bin/activate
+make -j2
+make test
+```
+
+`make venv` installs the checkout's Python tools for tests, documentation, linting
+and formatting into its writable `.venv`. `perl-doc` supplies `Pod::Perldoc`.
+To install your build in a normal session, run `make install` and add
+`$HOME/.local/bin` to PATH. Adjust build parallelism to available memory.
 
 A local recipe has the same format: a Dockerfile, `defaults.toml` containing
 any of the non-recipe configuration defaults above, and optional build assets.

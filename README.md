@@ -124,7 +124,9 @@ general command-line tools. Generic has no Java. Java includes JDKs 17 and 21,
 with 21 selected by default. Edit the generated Dockerfile to change packages,
 the Ubuntu version or Java defaults.
 
-Select **verilator** during `workshop init` to develop Verilator itself. It includes
+### Verilator development
+
+Choose **verilator** during `workshop init` to develop Verilator itself. It includes
 the build and contributor prerequisites from the
 [official installation guide](https://verilator.org/guide/latest/install.html):
 GCC/Make, Autoconf, Flex/Bison, Perl documentation, Clang and clang-format-18,
@@ -150,6 +152,28 @@ make test
 and formatting into its writable `.venv`. `perl-doc` supplies `Pod::Perldoc`.
 To install your build in a normal session, run `make install` and add
 `$HOME/.local/bin` to PATH. Adjust build parallelism to available memory.
+
+### Neovim plugin development
+
+Choose **lua-nvim** during `workshop init` for Neovim plugin development. It
+includes [Neovim 0.11.5](https://github.com/neovim/neovim/releases/tag/v0.11.5)
+(built from source), Lua 5.1, LuaJIT, LuaRocks and native build tools. The image
+build checks that Neovim starts headlessly with LuaJIT. Change the release tag in
+the generated Dockerfile to target another Neovim version.
+
+From your plugin directory inside the container, load it with:
+
+```bash
+nvim -u NONE --cmd 'set runtimepath^=.'
+# Run a project-provided Lua test script with the plugin on runtimepath:
+nvim --headless -u NONE --cmd 'set runtimepath^=.' -l tests/smoke.lua
+```
+
+Install project-specific Lua rocks into the writable home with
+`luarocks --local --lua-version=5.1 install <rock>`. Test frameworks and editor
+configuration are supplied by the plugin project.
+
+### Custom recipes
 
 A local recipe has the same format: a Dockerfile, `defaults.toml` containing
 any of the non-recipe configuration defaults above, and optional build assets.

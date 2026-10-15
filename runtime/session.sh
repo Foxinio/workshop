@@ -7,6 +7,10 @@ tool=$1
 shift
 prepare_container
 SESSION_CONTAINER="${WORKSHOP_ID}-session"
+existing=$(docker ps -aq --filter "name=^/${SESSION_CONTAINER}$")
+if [[ -n "$existing" ]]; then
+    docker rm "$SESSION_CONTAINER" >/dev/null
+fi
 SESSION_REMOVE=true
 session_traps
 echo "Starting $tool; home changes will be saved when the session exits."

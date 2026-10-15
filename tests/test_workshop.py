@@ -71,8 +71,21 @@ def main():
 source() { SCRIPT_DIR=${1%/*}; }
 prepare_container() { :; }
 session_traps() { :; }
+docker() {
+    case "$1" in
+        ps)
+            [[ ${TEST_DOCKER_FAILURE:-} != yes ]] || return 1
+            [[ ${TEST_EXISTING_SESSION:-} != yes ]] || echo leftover
+            ;;
+        rm)
+            echo "removing $2" >&2
+            [[ ${TEST_RUNNING_SESSION:-} != yes ]] || return 1
+            ;;
+    esac
+    return 0
+}
 ram_run() { python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@"; }
-export -f source prepare_container session_traps ram_run
+export -f source prepare_container session_traps docker ram_run
 exec bash "$@"
 '''
                 for tool in ("codex", "claude", "opencode"):
@@ -97,6 +110,18 @@ exec bash "$@"
                             str(config.RUNTIME / "compose.yaml"), "run", "--name",
                             env["WORKSHOP_ID"] + "-session", "--pull", "never", tool, *forwarded,
                         ]
+                    for extra_env, succeeds, removes in (
+                        ({"TEST_EXISTING_SESSION": "yes"}, True, True),
+                        ({"TEST_EXISTING_SESSION": "yes", "TEST_RUNNING_SESSION": "yes"}, False, True),
+                        ({"TEST_DOCKER_FAILURE": "yes"}, False, False),
+                    ):
+                        result = subprocess.run(
+                            ["bash", "-c", launcher, "test", str(config.INSTALL / "bin/workshop"), tool],
+                            cwd=root, capture_output=True, text=True, env={**os.environ, **extra_env},
+                        )
+                        assert (result.returncode == 0) == succeeds, result.stderr
+                        assert ("removing " + env["WORKSHOP_ID"] + "-session" in result.stderr) == removes
+                        assert ("Starting " in result.stdout) == succeeds
                     result = subprocess.run(
                         [str(config.INSTALL / "bin/workshop"), tool, "--unknown", "--", "--help"],
                         cwd=root, capture_output=True, text=True,

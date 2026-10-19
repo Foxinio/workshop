@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 
-from workshop_config import DEFAULTS, INSTALL, TOOL_SELECTIONS, project_path, read_toml, validate
+from workshop_config import DEFAULTS, INSTALL, project_path, read_toml, validate
 
 
 def ask(label, default):
@@ -57,15 +57,11 @@ def main():
     if any(path.is_symlink() for path in source.rglob("*")):
         raise ValueError("recipe assets must not be symbolic links")
     defaults = read_toml(source / "defaults.toml")
+    defaults.pop("tools", None)
     if defaults.keys() - DEFAULTS.keys():
         raise ValueError("unknown field in recipe defaults.toml")
     recipe = f".workshop/recipes/{selection}"
     config = {"recipe": recipe, **DEFAULTS, **defaults}
-    while True:
-        config["tools"] = ask(f"Install tools ({'/'.join(TOOL_SELECTIONS)})", config["tools"]).lower()
-        if config["tools"] in TOOL_SELECTIONS:
-            break
-        print("Please enter " + ", ".join(TOOL_SELECTIONS) + ".")
     config["checkpoint"] = ask("Disk checkpoint directory", config["checkpoint"])
     if yes("Configure advanced settings?", False):
         for key, label in (("ram_capacity", "Zram logical capacity"),

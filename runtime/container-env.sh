@@ -50,9 +50,9 @@ prepare_container() {
     fi
     echo "Container image: $CODEX_IMAGE"
     export CODEX_IMAGE
-    session_runtime="${RAM_STATE%/*}/session"
+    session_runtime="${RAM_STATE%/*}/session/$tool"
     if [[ ${WORKSHOP_LAYOUT:-} == legacy ]]; then
-        session_runtime="$WORKSHOP_ROOT/.workshop-session"
+        session_runtime="$WORKSHOP_ROOT/.workshop-session/$tool"
     fi
     ram_run python3 "$SCRIPT_DIR/../lib/workshop_session.py" \
         "$CODEX_IMAGE" "$RAM_DIR" "$session_runtime" "$HOST_UID" "$HOST_GID" "$tool"

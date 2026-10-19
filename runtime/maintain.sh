@@ -10,13 +10,14 @@ fi
 
 container="${WORKSHOP_ID}-maintenance"
 image=$CODEX_MAINTAINED_IMAGE
-prepare_container maintain
+require_compose
 if docker container inspect "$container" >/dev/null 2>&1; then
     echo "Maintenance container already exists: $container" >&2
     echo "Resume with: docker start -ai $container" >&2
     echo "See README.md for saving a recovered session." >&2
     exit 1
 fi
+prepare_container maintain
 
 # Failed/interrupted maintenance containers remain recoverable.
 SESSION_CONTAINER="$container"

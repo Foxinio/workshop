@@ -19,10 +19,8 @@ DEFAULTS = {
     "compression": "zstd",
     "memory_limit": "12g",
     "codex_version": "latest",
-    "tools": "both",
 }
 TOOLS = ("codex", "claude", "opencode")
-TOOL_SELECTIONS = {**{tool: (tool,) for tool in TOOLS}, "both": TOOLS[:2], "all": TOOLS}
 
 
 def read_toml(path):
@@ -32,7 +30,7 @@ def read_toml(path):
 
 def validate(root, config):
     expected = {"recipe", *DEFAULTS}
-    if config.keys() != expected:
+    if config.keys() - {"tools"} != expected:
         raise ValueError(f"configuration requires exactly: {', '.join(sorted(expected))}")
     for key, value in config.items():
         if not isinstance(value, str) or not value.strip() or any(ord(c) < 32 for c in value):
@@ -44,8 +42,6 @@ def validate(root, config):
         raise ValueError("invalid compression algorithm name")
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9.+_-]*", config["codex_version"]):
         raise ValueError("codex_version must be an npm version or tag")
-    if config["tools"] not in TOOL_SELECTIONS:
-        raise ValueError("tools must be " + ", ".join(TOOL_SELECTIONS))
     recipe = (root / config["recipe"]).resolve()
     if (root / ".workshop").is_dir():
         recipes = root / ".workshop" / "recipes"
@@ -127,7 +123,6 @@ def project_environment():
     check_update(root)
     config = read_toml(project_path(root, "config"))
     config.pop("updating", None)
-    config.setdefault("tools", "codex")
     recipe, checkpoint = validate(root, config)
     if not (recipe / "Dockerfile").is_file():
         raise ValueError(f"recipe has no Dockerfile: {recipe}")
@@ -143,7 +138,6 @@ def project_environment():
         "ZRAM_ALGORITHM": config["compression"],
         "WORKSHOP_MEMORY_LIMIT": config["memory_limit"],
         "CODEX_VERSION": config["codex_version"],
-        "WORKSHOP_TOOLS": config["tools"],
         "CODEX_BASE_IMAGE": f"local/{identity}:base",
         "CODEX_MAINTAINED_IMAGE": f"local/{identity}:maintained",
         "COMPOSE_PROJECT_NAME": identity,
@@ -169,8 +163,6 @@ def main():
         args = args[separator + 1:]
     root, env = project_environment()
     if command in TOOLS:
-        if command not in TOOL_SELECTIONS[env["WORKSHOP_TOOLS"]]:
-            raise ValueError(f"{command} is not selected; update tools in the Workshop configuration and rebuild the recipe")
         args = [command, *args]
         command = "session"
     os.chdir(root)

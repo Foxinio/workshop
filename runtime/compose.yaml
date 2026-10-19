@@ -5,7 +5,7 @@ x-runtime: &runtime
     context: ${WORKSHOP_RECIPE:?Run through workshop}
     args:
       CODEX_VERSION: ${CODEX_VERSION:-latest}
-      WORKSHOP_TOOLS: ${WORKSHOP_TOOLS:-both}
+      WORKSHOP_TOOLS: all
 
   image: ${CODEX_IMAGE:?Run through workshop}
   user: "${HOST_UID}:${HOST_GID}"

@@ -58,7 +58,7 @@ def main():
                 dockerfile = Path(args[args.index("--file") + 1]).read_text()
                 if "BROKEN" in dockerfile:
                     raise ValueError("invalid Dockerfile")
-                assert "WORKSHOP_TOOLS=codex" in args
+                assert "WORKSHOP_TOOLS=all" in args
                 assert "CODEX_VERSION=latest" in args
                 return ""
             raise AssertionError(args)
@@ -133,7 +133,7 @@ def main():
             assert (root / ".workshop/recipes/local/user.txt").read_text() == "untouched"
             assert (config.project_path(root, "config")).read_text() == original_config
 
-            # Legacy origins are prompted once; missing tools preserve Codex.
+            # Legacy origins are prompted once; removed tool selection stays absent.
             reset(legacy=True)
             for extra in ("settings.json", "asset.bin", "new/note.txt"):
                 (root / ".workshop/recipes/local" / extra).unlink()
@@ -141,7 +141,7 @@ def main():
             answers = iter(("local", str(source)))
             with patch("builtins.input", side_effect=lambda _: next(answers)):
                 update.run_update(root)
-            assert config.read_toml(config.project_path(root, "config"))["tools"] == "codex"
+            assert "tools" not in config.read_toml(config.project_path(root, "config"))
             with patch("builtins.input", side_effect=AssertionError("unexpected prompt")):
                 update.run_update(root)
 

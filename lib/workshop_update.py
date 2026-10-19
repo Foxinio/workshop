@@ -190,7 +190,7 @@ def validate_files(root, config, recipe, names):
         if not safe_path(recipe, required).is_file():
             raise ValueError(f"recipe requires {required}")
     defaults = read_toml(recipe / "defaults.toml")
-    if defaults.keys() - DEFAULTS.keys():
+    if defaults.keys() - DEFAULTS.keys() - {"tools"}:
         raise ValueError("unknown field in recipe defaults.toml")
     validate(root, {**config, **defaults})
     # Official frontend parsing, without running RUN commands or updating images.
@@ -203,7 +203,7 @@ def validate_files(root, config, recipe, names):
                WORKSHOP_RECIPE=str(recipe), CODEX_IMAGE="workshop-update-check",
                CODEX_RAM_DIR=str(root / ".workshop-ram"), HOST_UID=str(os.getuid()),
                HOST_GID=str(os.getgid()), WORKSHOP_MEMORY_LIMIT=config["memory_limit"],
-               CODEX_VERSION=config["codex_version"], WORKSHOP_TOOLS=config["tools"])
+               CODEX_VERSION=config["codex_version"], WORKSHOP_TOOLS="all")
     for name in sorted(set(names)):
         path = safe_path(recipe, name)
         if not path.exists():
@@ -212,7 +212,7 @@ def validate_files(root, config, recipe, names):
         if path.name == "Dockerfile" or path.name.startswith("Dockerfile.") or suffix == ".dockerfile":
             checked(["docker", "buildx", "build", "--check", "--file", str(path),
                      "--build-arg", f"CODEX_VERSION={config['codex_version']}",
-                     "--build-arg", f"WORKSHOP_TOOLS={config['tools']}", str(recipe)])
+                     "--build-arg", "WORKSHOP_TOOLS=all", str(recipe)])
         elif suffix == ".toml":
             read_toml(path)
         elif suffix == ".json":
@@ -248,7 +248,7 @@ def clean_config(root):
         raise ValueError("updating must appear as a top-level updating = true/false line")
     for key, value in DEFAULTS.items():
         if key not in config:
-            config[key] = "codex" if key == "tools" else value
+            config[key] = value
             cleaned = cleaned.rstrip("\n") + f"\n{key} = {json.dumps(config[key])}\n"
     validate(root, config)
     if tomllib.loads(cleaned) != config:
@@ -396,7 +396,7 @@ def run_update(root, force=False, finishing=False):
                 print("Update prepared. Resolve Workshop markers in recipe files, then run workshop update --finish.")
                 return
             finish(root, config, clean, metadata, validated=True)
-        print('Update complete. To enable Claude/OpenCode, set tools = "both"/"all" in .workshop/config.toml, then run workshop build.')
+        print("Update complete. Run workshop build to install all three agents from the updated recipe.")
         print("A saved maintained image still takes precedence; update its tools through workshop maintain if needed.")
 
 

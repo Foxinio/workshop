@@ -18,7 +18,7 @@ import workshop_init as init
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
-        answers = iter(("verilator", "", "", "no", "no", "no"))
+        answers = iter(("verilator", "", "no", "no", "no"))
         with patch.object(Path, "cwd", return_value=root), \
              patch.object(sys, "argv", ["workshop_init.py"]), \
              patch("builtins.input", side_effect=lambda _: next(answers)), \
@@ -36,7 +36,7 @@ def main():
     for selection in ("", "codex", "claude", "opencode", "both", "all"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()
-            answers = iter(("", selection, "", "no", "no", "no"))
+            answers = iter(("", "", "no", "no", "no"))
             with patch.object(Path, "cwd", return_value=root), \
                  patch.object(sys, "argv", ["workshop_init.py"]), \
                  patch("builtins.input", side_effect=lambda _: next(answers)), \
@@ -46,30 +46,26 @@ def main():
             assert (root / ".workshop/recipes/generic/Dockerfile").is_file()
             assert (root / ".workshop/ram.lock").is_file()
             settings = config.read_toml(config.project_path(root, "config"))
-            assert settings["tools"] == (selection or "both")
+            assert "tools" not in settings
+            # Old selections remain readable, but never disable a launcher.
+            if selection:
+                settings["tools"] = selection
+                config.project_path(root, "config").write_text("".join(
+                    f"{key} = {json.dumps(value)}\n" for key, value in settings.items()))
             with patch.object(Path, "cwd", return_value=root):
                 _, env = config.project_environment()
                 for tool in ("codex", "claude", "opencode"):
                     with patch.object(sys, "argv", ["workshop", tool, "a b", "--help"]), \
                          patch.object(os, "chdir"), patch.object(os, "execvpe") as execute:
-                        if tool in config.TOOL_SELECTIONS[settings["tools"]]:
-                            config.main()
-                            assert execute.call_args.args[1] == [
-                                "bash", str(config.RUNTIME / "session.sh"), tool, "a b", "--help"
-                            ]
-                        else:
-                            try:
-                                config.main()
-                            except ValueError as error:
-                                assert "not selected" in str(error)
-                            else:
-                                raise AssertionError("disabled tool launched")
-                            execute.assert_not_called()
+                        config.main()
+                        assert execute.call_args.args[1] == [
+                            "bash", str(config.RUNTIME / "session.sh"), tool, "a b", "--help"
+                        ]
                 # Run the real CLI, Python dispatch and session launcher. Only
                 # storage preparation and the final Docker invocation are mocked.
                 launcher = r'''
 source() { SCRIPT_DIR=${1%/*}; }
-prepare_container() { export WORKSHOP_SESSION_CONFIG="$WORKSHOP_ROOT/.workshop/session/compose.json"; }
+prepare_container() { export WORKSHOP_SESSION_CONFIG="$WORKSHOP_ROOT/.workshop/session/$1/compose.json"; }
 session_traps() { :; }
 docker() {
     case "$1" in
@@ -89,8 +85,6 @@ export -f source prepare_container session_traps docker ram_run
 exec bash "$@"
 '''
                 for tool in ("codex", "claude", "opencode"):
-                    if tool not in config.TOOL_SELECTIONS[settings["tools"]]:
-                        continue
                     for passed, forwarded in (
                         (["--yolo"], ["--yolo"]),
                         (["--", "--yolo"], ["--yolo"]),
@@ -108,7 +102,7 @@ exec bash "$@"
                         assert docker_args == [
                             "docker", "compose", "--env-file", "/dev/null", "--file",
                             str(config.RUNTIME / "compose.yaml"), "--file",
-                            str(root / ".workshop/session/compose.json"), "run", "--name",
+                            str(root / ".workshop/session" / tool / "compose.json"), "run", "--name",
                             env["WORKSHOP_ID"] + "-session", "--pull", "never", tool, *forwarded,
                         ]
                     for extra_env, succeeds, removes in (
@@ -154,10 +148,6 @@ exec bash "$@"
                         cwd=root, capture_output=True, text=True,
                     )
                     assert result.returncode != 0 and "usage:" in result.stderr
-                # Older configurations retain their Codex-only behavior.
-                del settings["tools"]
-                with patch.object(config, "read_toml", return_value=settings):
-                    assert config.project_environment()[1]["WORKSHOP_TOOLS"] == "codex"
             env.update(CODEX_IMAGE="workshop-test", CODEX_RAM_DIR=str(root / "ram"),
                        HOST_UID="1000", HOST_GID="1000")
             result = subprocess.run(
@@ -171,24 +161,21 @@ exec bash "$@"
             for tool in ("codex", "claude", "opencode"):
                 assert services[tool]["entrypoint"] == [tool]
                 assert services[tool]["read_only"] is True
-                assert services[tool]["build"]["args"]["WORKSHOP_TOOLS"] == (selection or "both")
+                assert services[tool]["build"]["args"]["WORKSHOP_TOOLS"] == "all"
             assert services["codex"]["volumes"] == services["claude"]["volumes"] == services["opencode"]["volumes"]
 
-    # Execute the actual Dockerfile selection logic with npm replaced by a logger.
+    # Execute each recipe's actual install command with npm replaced by a logger.
     for recipe in (config.INSTALL / "recipes").iterdir():
         dockerfile = (recipe / "Dockerfile").read_text()
-        install = dockerfile.split("RUN set -eu;", 1)[1].split("\n\n", 1)[0]
-        for selection in ("codex", "claude", "opencode", "both", "all", "invalid"):
-            result = subprocess.run(
-                ["sh", "-c", "npm() { printf '%s\\n' \"$*\"; }; set -eu;" + install],
-                env={**os.environ, "WORKSHOP_TOOLS": selection, "CODEX_VERSION": "latest"},
-                capture_output=True, text=True,
-            )
-            assert (result.returncode == 0) == (selection != "invalid")
-            assert ("@openai/codex@latest" in result.stdout) == (selection in {"codex", "both", "all"})
-            assert ("@anthropic-ai/claude-code" in result.stdout) == (selection in {"claude", "both", "all"})
-            assert ("opencode-ai" in result.stdout) == (selection in {"opencode", "all"})
-    print("Tool selection, dispatch, legacy configuration and Compose checks passed.")
+        install = "npm install --global " + dockerfile.split("RUN npm install --global ", 1)[1].split("\n\n", 1)[0]
+        result = subprocess.run(
+            ["sh", "-c", "npm() { printf '%s\\n' \"$*\"; }; set -eu;" + install],
+            env={**os.environ, "WORKSHOP_TOOLS": "claude", "CODEX_VERSION": "latest"},
+            check=True, capture_output=True, text=True,
+        )
+        assert all(package in result.stdout for package in
+                   ("@openai/codex@latest", "@anthropic-ai/claude-code", "opencode-ai"))
+    print("Agent installation, dispatch, legacy configuration and Compose checks passed.")
 
 
 if __name__ == "__main__":

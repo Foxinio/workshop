@@ -108,6 +108,7 @@ def unit_checks():
         linked_runtime = root / "runtime-link"
         linked_runtime.symlink_to(runtime, target_is_directory=True)
         expect_error(lambda: session.prepare("test", home, linked_runtime, 1000, 1000, "codex"), "symlink")
+        (runtime / "empty-dir").chmod(0o755)
         (runtime / "empty-dir/leak").write_text("dummy-secret")
         expect_error(lambda: session.prepare("test", home, runtime, 1000, 1000, "codex"), "must be empty")
         (runtime / "empty-dir/leak").unlink()
@@ -137,7 +138,7 @@ def docker_checks(image):
         seed(home)
         env = {**os.environ, "WORKSHOP_ID": "workshop-isolation-" + uuid.uuid4().hex[:12],
                "WORKSHOP_RECIPE": str(Path(__file__).resolve().parents[1] / "recipes/generic"),
-               "CODEX_IMAGE": image, "CODEX_RAM_DIR": str(home), "WORKSHOP_TOOLS": "all",
+               "CODEX_IMAGE": image, "CODEX_RAM_DIR": str(home),
                "HOST_UID": str(os.getuid()), "HOST_GID": str(os.getgid()),
                "WORKSHOP_MEMORY_LIMIT": "1g"}
         base = Path(__file__).resolve().parents[1] / "runtime/compose.yaml"
@@ -153,12 +154,12 @@ IFS=: read -r name password uid gid comment account_home shell < <(getent passwd
         for tool in (*session.TOOLS, "maintain"):
             runtime = root / ("runtime-" + tool)
             session.prepare(image, home, runtime, os.getuid(), os.getgid(), tool)
-            command = ["docker", "compose", "--env-file", "/dev/null", "--file", str(base),
+            command = ["docker", "compose", "--profile", "maintenance", "--env-file", "/dev/null", "--file", str(base),
                        "--file", str(runtime / "compose.json")]
             config = subprocess.run([*command, "config", "--format", "json"], env=env,
                                     check=True, capture_output=True, text=True)
             service = json.loads(config.stdout)["services"][tool]
-            assert service["read_only"] == (tool != "maintain")
+            assert service.get("read_only", False) == (tool != "maintain")
             checks = identity
             before = {relative: (home / relative).read_bytes()
                       for owner, paths in SECRETS.items() if owner != tool for relative in paths}

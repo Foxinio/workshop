@@ -2,7 +2,6 @@ FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG CODEX_VERSION=latest
-ARG WORKSHOP_TOOLS=both
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -28,11 +27,7 @@ RUN apt-get update && \
         openjdk-21-jdk-headless \
     && rm -rf /var/lib/apt/lists/*
 
-RUN set -eu; \
-    case "$WORKSHOP_TOOLS" in codex|claude|opencode|both|all) ;; *) exit 1 ;; esac; \
-    case "$WORKSHOP_TOOLS" in codex|both|all) npm install --global "@openai/codex@${CODEX_VERSION}" ;; esac; \
-    case "$WORKSHOP_TOOLS" in claude|both|all) npm install --global @anthropic-ai/claude-code ;; esac; \
-    case "$WORKSHOP_TOOLS" in opencode|all) npm install --global opencode-ai ;; esac; \
+RUN npm install --global "@openai/codex@${CODEX_VERSION}" @anthropic-ai/claude-code opencode-ai && \
     npm cache clean --force
 
 RUN ln -s /usr/bin/fdfind /usr/local/bin/fd && \

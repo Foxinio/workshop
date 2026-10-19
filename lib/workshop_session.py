@@ -71,7 +71,7 @@ def accounts(passwd, group, uid, gid):
 
 
 def image_accounts(image):
-    command = ["docker", "run", "--rm", "--network", "none", "--read-only",
+    command = ["docker", "run", "--rm", "--pull", "never", "--network", "none", "--read-only",
                "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
                "--user", "0:0", "--entrypoint", "/bin/cat", image]
     return [subprocess.run([*command, path], check=True, capture_output=True, text=True).stdout

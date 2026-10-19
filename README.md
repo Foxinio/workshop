@@ -39,13 +39,11 @@ The questionnaire asks, in order:
 
 1. Recipe: discovered names from the installation's **recipes/** directory, or
    **local** (then a local recipe directory). **generic** is the default when present.
-2. Tools to install: **codex**, **claude**, **opencode**, **both** (Codex + Claude, default),
-   or **all** (all three).
-3. Disk checkpoint directory: **docker-bridge**.
-4. Advanced settings? **no**. If yes: RAM capacity **8G**, compression **zstd**,
+2. Disk checkpoint directory: **docker-bridge**.
+3. Advanced settings? **no**. If yes: RAM capacity **8G**, compression **zstd**,
    container memory limit **12g**, and Codex build version **latest**.
-5. Build now? **yes**.
-6. Initialize RAM now? **yes**.
+4. Build now? **yes**.
+5. Initialize RAM now? **yes**.
 
 Recipe defaults supply these settings; local recipes may choose different values.
 No project name is needed. Docker image names, the Compose project and container
@@ -68,7 +66,6 @@ ram_capacity = "8G"
 compression = "zstd"
 memory_limit = "12g"
 codex_version = "latest"
-tools = "both"
 ```
 
 | Field | Meaning |
@@ -79,9 +76,8 @@ tools = "both"
 | `compression` | Compression algorithm supported by the host's zram |
 | `memory_limit` | Container memory limit, positive integer with optional K/M/G/T |
 | `codex_version` | npm version or tag used when building Codex |
-| `tools` | Install `codex`, `claude`, `opencode`, `both` (Codex + Claude), or `all` |
 
-All fields are required except `tools`, which defaults to `codex` for older configurations;
+All listed fields are required. Legacy `tools` settings are accepted and ignored;
 the optional boolean `updating` is reserved for updates; unknown fields are errors. Relative paths resolve against
 the environment root (the parent of `.workshop/`). Commands search upward for the nearest
 configuration, so they also work from project subdirectories. Configuration is
@@ -114,7 +110,7 @@ stay out of version control (`.workshop-session/` for legacy layouts).
 
 ## Recipes and builds
 
-All bundled recipes retain Ubuntu 24.04 and provide the selected tools, Node, Python, Git and
+All bundled recipes retain Ubuntu 24.04 and provide Codex, Claude, OpenCode, Node, Python, Git and
 general command-line tools. Generic has no Java. Java includes JDKs 17 and 21,
 with 21 selected by default. Edit the generated Dockerfile to change packages,
 the Ubuntu version or Java defaults.
@@ -148,7 +144,8 @@ To install your build in a normal session, run `make install` and add
 
 A local recipe has the same format: a Dockerfile, `defaults.toml` containing
 any of the non-recipe configuration defaults above, and optional build assets.
-Custom Dockerfiles must honor the `WORKSHOP_TOOLS` build argument to support tool selection.
+Custom Dockerfiles should install all three agents. Workshop passes
+`WORKSHOP_TOOLS=all` for compatibility with older recipes that select tools.
 To add a bundled recipe, add a directory under `recipes/` with both required files;
 init discovers it automatically. Incomplete directories are omitted. The name
 `local` is reserved for selecting an external recipe directory. If `generic` is
@@ -182,7 +179,7 @@ image continues to take precedence, and build output explains this when present.
 Claude is installed using `npm install --global @anthropic-ai/claude-code`.
 OpenCode is installed using `npm install --global opencode-ai`, as documented in
 [the OpenCode installation guide](https://opencode.ai/docs/#install).
-All selected tools share the same image and saved home. Each Compose service explicitly
+All three agents share the same image and saved home. Each Compose service explicitly
 selects its own executable, including when using a maintained image.
 All agents and the interactive maintenance shell use the username `ubuntu`, the
 host UID/GID, and `HOME=/home/codex`. Sessions require a non-root host UID.
@@ -204,14 +201,12 @@ Project files, shell configuration, shared tools and custom credential locations
 remain shared. Host environment variables are not automatically passed into
 containers; credentials embedded in image environment variables or shared shell
 startup files remain accessible. Keep agent secrets in their standard private paths.
-To add Claude to an existing environment, run `workshop update` as described below,
-set `tools = "both"` in `.workshop/config.toml`, then run `workshop build`. If a maintained image takes precedence,
-install Claude there with `sudo npm install --global @anthropic-ai/claude-code`
-inside `workshop maintain` and exit successfully.
-To add OpenCode, update the environment, use `tools = "all"` (or `"opencode"` for OpenCode alone),
-and rebuild. For a maintained
-image, install it with `sudo npm install --global opencode-ai` inside
-`workshop maintain` and exit successfully.
+All three launch commands are always available. To install missing agents in an
+existing environment, run `workshop update` as described below, then `workshop build`.
+If a maintained image takes precedence, install missing tools with
+`sudo npm install --global @openai/codex @anthropic-ai/claude-code opencode-ai`
+inside `workshop maintain` and exit successfully. Launching an agent missing from
+a custom or older image reports the executable error from Docker.
 
 Normal and maintenance sessions automatically initialize missing RAM from the
 checkpoint, or reuse a validated existing mount. Invalid, stale and incomplete
@@ -233,9 +228,9 @@ workshop update --force  # replace generated recipe files without review
 
 Updates use the newest templates in this installed checkout; update the installation
 first to obtain newer templates. They preserve `.workshop/config.toml` settings and comments,
-including selected tools, checkpoint paths and limits. Missing configuration fields
-are appended; a missing `tools` field becomes `codex` to preserve legacy behavior.
-Updating does not build or change images. Rebuild separately after selecting tools.
+including checkpoint paths and limits. Missing configuration fields are appended;
+legacy `tools` settings are retained but ignored.
+Updating does not build or change images. Rebuild separately to install missing agents.
 
 If all differences are new files or inserted text, Workshop validates and applies
 them automatically without setting an updating flag. Without a baseline, this is
@@ -404,7 +399,7 @@ Do not run old and new environments against the same writable checkpoint.
 
 ## Validation
 
-Run the tool-selection checks and basic repository checks:
+Run the agent-launch checks and basic repository checks:
 
 ```bash
 for file in bin/workshop runtime/*.sh; do bash -n "$file" || exit; done

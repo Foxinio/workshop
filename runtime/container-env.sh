@@ -34,6 +34,7 @@ require_compose() {
 }
 
 prepare_container() {
+    local tool=$1 session_runtime
     ram_traps
     require_compose
     ram_lock
@@ -49,4 +50,11 @@ prepare_container() {
     fi
     echo "Container image: $CODEX_IMAGE"
     export CODEX_IMAGE
+    session_runtime="${RAM_STATE%/*}/session"
+    if [[ ${WORKSHOP_LAYOUT:-} == legacy ]]; then
+        session_runtime="$WORKSHOP_ROOT/.workshop-session"
+    fi
+    ram_run python3 "$SCRIPT_DIR/../lib/workshop_session.py" \
+        "$CODEX_IMAGE" "$RAM_DIR" "$session_runtime" "$HOST_UID" "$HOST_GID" "$tool"
+    export WORKSHOP_SESSION_CONFIG="$session_runtime/compose.json"
 }

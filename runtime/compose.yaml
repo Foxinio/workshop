@@ -13,6 +13,8 @@ x-runtime: &runtime
 
   environment:
     HOME: /home/codex
+    USER: ubuntu
+    LOGNAME: ubuntu
     XDG_CACHE_HOME: /home/codex/.cache
     NPM_CONFIG_CACHE: /home/codex/.npm
     TERM: ${TERM:-xterm-256color}

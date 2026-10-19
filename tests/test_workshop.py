@@ -69,7 +69,7 @@ def main():
                 # storage preparation and the final Docker invocation are mocked.
                 launcher = r'''
 source() { SCRIPT_DIR=${1%/*}; }
-prepare_container() { :; }
+prepare_container() { export WORKSHOP_SESSION_CONFIG="$WORKSHOP_ROOT/.workshop/session/compose.json"; }
 session_traps() { :; }
 docker() {
     case "$1" in
@@ -107,7 +107,8 @@ exec bash "$@"
                         docker_args = json.loads(result.stdout.splitlines()[-1])
                         assert docker_args == [
                             "docker", "compose", "--env-file", "/dev/null", "--file",
-                            str(config.RUNTIME / "compose.yaml"), "run", "--name",
+                            str(config.RUNTIME / "compose.yaml"), "--file",
+                            str(root / ".workshop/session/compose.json"), "run", "--name",
                             env["WORKSHOP_ID"] + "-session", "--pull", "never", tool, *forwarded,
                         ]
                     for extra_env, succeeds, removes in (

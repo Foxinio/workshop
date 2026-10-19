@@ -109,6 +109,8 @@ state live in the RAM home and are checkpointed too. Startup creates
 `.workshop-ram/`; stop, reset and purge remove it after unmounting.
 Keep RAM, checkpoints, `.workshop/ram-state` and `.workshop/ram.lock` out of version control. Each environment must
 use its own checkpoint directory; intentionally sharing one is unsupported.
+Generated session mounts and account mappings in `.workshop/session/` must also
+stay out of version control (`.workshop-session/` for legacy layouts).
 
 ## Recipes and builds
 
@@ -182,6 +184,26 @@ OpenCode is installed using `npm install --global opencode-ai`, as documented in
 [the OpenCode installation guide](https://opencode.ai/docs/#install).
 All selected tools share the same image and saved home. Each Compose service explicitly
 selects its own executable, including when using a maintained image.
+All agents and the interactive maintenance shell use the username `ubuntu`, the
+host UID/GID, and `HOME=/home/codex`. Sessions require a non-root host UID.
+Runtime account mappings also apply to existing and maintained images; no home
+directory or existing absolute path is moved. Maintenance keeps its account files
+writable so package installation can still add system users and groups.
+
+Normal sessions mask the other agents' private home paths with empty, read-only
+bind mounts. Codex owns `~/.codex/`; Claude owns `~/.claude/`, `~/.claude.json`
+and `~/.claude.json.*`; OpenCode owns `~/.config/opencode/`,
+`~/.local/share/opencode/`, `~/.local/state/opencode/` and `~/.cache/opencode/`.
+The active agent's files stay writable and are checkpointed normally. Maintenance
+sees every agent's files. Masks never change saved credentials or their permissions.
+Normal sessions reject symlinks at these paths or their home-relative ancestors;
+use maintenance to repair them. A failed mask preparation prevents launch.
+
+This protects the listed user-level paths, not arbitrary copies of credentials.
+Project files, shell configuration, shared tools and custom credential locations
+remain shared. Host environment variables are not automatically passed into
+containers; credentials embedded in image environment variables or shared shell
+startup files remain accessible. Keep agent secrets in their standard private paths.
 To add Claude to an existing environment, run `workshop update` as described below,
 set `tools = "both"` in `.workshop/config.toml`, then run `workshop build`. If a maintained image takes precedence,
 install Claude there with `sudo npm install --global @anthropic-ai/claude-code`
@@ -389,6 +411,9 @@ for file in bin/workshop runtime/*.sh; do bash -n "$file" || exit; done
 python3 -B tests/test_workshop.py
 python3 -B tests/test_update.py
 python3 -B tests/test_ram.py
+python3 -B tests/test_session.py
+# Also exercise real containers with dummy credentials (requires Docker access):
+python3 -B tests/test_session.py --docker --image ubuntu:24.04
 shellcheck -x -P runtime bin/workshop runtime/*.sh
 python3 -B -c 'import ast,pathlib,tomllib; [ast.parse(p.read_text()) for p in pathlib.Path("lib").glob("workshop_*.py")]; [tomllib.loads(p.read_text()) for p in pathlib.Path("recipes").glob("*/defaults.toml")]'
 git diff --check

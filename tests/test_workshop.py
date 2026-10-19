@@ -18,6 +18,24 @@ import workshop_init as init
 def main():
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory).resolve()
+        answers = iter(("", "", "yes", "", "", "", "", "builder", "no", "no"))
+        with patch.object(Path, "cwd", return_value=root), \
+             patch.object(sys, "argv", ["workshop_init.py"]), \
+             patch("builtins.input", side_effect=lambda _: next(answers)), \
+             contextlib.redirect_stdout(io.StringIO()):
+            assert init.main() == 0
+        settings = config.read_toml(config.project_path(root, "config"))
+        assert settings["container_user"] == "builder"
+        assert config.container_home(settings) == "/home/builder"
+        for username in ("root", "../escape", "bad:name", "", "a" * 33):
+            try:
+                config.validate(root, {**settings, "container_user": username})
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"invalid username accepted: {username!r}")
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory).resolve()
         answers = iter(("verilator", "", "no", "no", "no"))
         with patch.object(Path, "cwd", return_value=root), \
              patch.object(sys, "argv", ["workshop_init.py"]), \
@@ -27,6 +45,7 @@ def main():
         settings = config.read_toml(config.project_path(root, "config"))
         recipe, _ = config.validate(root, settings)
         assert settings["recipe"] == ".workshop/recipes/verilator"
+        assert settings["container_user"] == "ubuntu"
         assert (recipe / "Dockerfile").read_bytes() == (
             config.INSTALL / "recipes/verilator/Dockerfile"
         ).read_bytes()
@@ -47,6 +66,12 @@ def main():
             assert (root / ".workshop/ram.lock").is_file()
             settings = config.read_toml(config.project_path(root, "config"))
             assert "tools" not in settings
+            if selection == "":
+                settings.pop("container_user")
+            elif selection == "codex":
+                settings["container_user"] = "developer"
+            config.project_path(root, "config").write_text("".join(
+                f"{key} = {json.dumps(value)}\n" for key, value in settings.items()))
             # Old selections remain readable, but never disable a launcher.
             if selection:
                 settings["tools"] = selection
@@ -54,6 +79,8 @@ def main():
                     f"{key} = {json.dumps(value)}\n" for key, value in settings.items()))
             with patch.object(Path, "cwd", return_value=root):
                 _, env = config.project_environment()
+                assert env["WORKSHOP_HOME"] == config.container_home(settings)
+                assert env["WORKSHOP_USER"] == settings.get("container_user", "ubuntu")
                 for tool in ("codex", "claude", "opencode"):
                     with patch.object(sys, "argv", ["workshop", tool, "a b", "--help"]), \
                          patch.object(os, "chdir"), patch.object(os, "execvpe") as execute:
@@ -158,6 +185,15 @@ exec bash "$@"
             services = json.loads(result.stdout)["services"]
             for service in services.values():
                 assert service["tmpfs"] == ["/tmp:rw,exec,nosuid,nodev,size=2g"]
+                home = env["WORKSHOP_HOME"]
+                assert service["environment"]["HOME"] == home
+                assert service["environment"]["USER"] == env["WORKSHOP_USER"]
+                assert service["environment"]["LOGNAME"] == env["WORKSHOP_USER"]
+                assert service["environment"]["XDG_CACHE_HOME"] == home + "/.cache"
+                assert service["environment"]["NPM_CONFIG_CACHE"] == home + "/.npm"
+                assert service["working_dir"] == home + "/work"
+                assert service["volumes"][0]["target"] == home
+                assert service["build"]["args"]["WORKSHOP_HOME"] == home
             for tool in ("codex", "claude", "opencode"):
                 assert services[tool]["entrypoint"] == [tool]
                 assert services[tool]["read_only"] is True

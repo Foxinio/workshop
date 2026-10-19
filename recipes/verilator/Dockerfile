@@ -2,6 +2,7 @@ FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG CODEX_VERSION=latest
+ARG WORKSHOP_HOME=/home/codex
 
 # Build and contributor prerequisites: https://verilator.org/guide/latest/install.html
 RUN apt-get update && \
@@ -61,12 +62,12 @@ RUN npm install --global "@openai/codex@${CODEX_VERSION}" @anthropic-ai/claude-c
     npm cache clean --force
 
 RUN ln -s /usr/bin/fdfind /usr/local/bin/fd && \
-    mkdir -p /home/codex/work
+    mkdir -p "${WORKSHOP_HOME}/work"
 
-ENV HOME=/home/codex
-ENV XDG_CACHE_HOME=/home/codex/.cache
-ENV NPM_CONFIG_CACHE=/home/codex/.npm
+ENV HOME=${WORKSHOP_HOME}
+ENV XDG_CACHE_HOME=${WORKSHOP_HOME}/.cache
+ENV NPM_CONFIG_CACHE=${WORKSHOP_HOME}/.npm
 
-WORKDIR /home/codex/work
+WORKDIR ${WORKSHOP_HOME}/work
 
 ENTRYPOINT ["codex"]

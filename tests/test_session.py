@@ -45,7 +45,9 @@ def expect_error(callback, message):
         raise AssertionError("unsafe session preparation succeeded")
 
 
-def unit_checks():
+def unit_checks(container_home, username="ubuntu"):
+    mapped, _ = session.accounts(PASSWD, GROUP, 1000, 1000, container_home, username)
+    assert f"{username}:x:1000:1000::{container_home}:/bin/bash\n" in mapped
     passwd, group = session.accounts(PASSWD, GROUP, 1000, 1000)
     assert passwd == "root:x:0:0:root:/root:/bin/bash\nubuntu:x:1000:1000::/home/codex:/bin/bash\n"
     assert "sudo:x:27:ubuntu\n" in group
@@ -67,15 +69,15 @@ def unit_checks():
         runtime = root / "runtime"
         for tool in (*session.TOOLS, "maintain"):
             with patch.object(session, "image_accounts", return_value=(PASSWD, GROUP)):
-                session.prepare("test-image", home, runtime, 1000, 1000, tool)
+                session.prepare("test-image", home, runtime, 1000, 1000, tool, container_home, username)
             services = json.loads((runtime / "compose.json").read_text())["services"]
             assert list(services) == [tool]
             mounts = services[tool]["volumes"]
             targets = {mount["target"] for mount in mounts}
-            private = {"/home/codex/" + path for owner, paths in session.PRIVATE_DIRS.items()
+            private = {container_home + "/" + path for owner, paths in session.PRIVATE_DIRS.items()
                        if owner != tool for path in paths}
             if tool != "claude":
-                private.update(("/home/codex/.claude.json", "/home/codex/.claude.json.backup"))
+                private.update((container_home + "/.claude.json", container_home + "/.claude.json.backup"))
             account_prefix = "/run/workshop-" if tool == "maintain" else "/etc/"
             assert targets == ({account_prefix + "passwd", account_prefix + "group"}
                                | (private if tool != "maintain" else set()))
@@ -84,6 +86,7 @@ def unit_checks():
             assert (runtime / "empty-file").read_bytes() == b""
             assert list((runtime / "empty-dir").iterdir()) == []
             assert (runtime / "passwd").stat().st_mode & 0o777 == 0o644
+            assert f"::{container_home}:/bin/bash" in (runtime / "passwd").read_text()
         # Missing agent files are left absent, including Claude's standalone JSON.
         absent = root / "absent"
         absent.mkdir()
@@ -129,7 +132,7 @@ def unit_checks():
     print("Session mask and account mapping checks passed.")
 
 
-def docker_checks(image):
+def docker_checks(image, container_home, username="ubuntu"):
     if os.getuid() == 0:
         raise SystemExit("Run the Docker checks as a non-root host user.")
     with tempfile.TemporaryDirectory(prefix="workshop session ") as directory:
@@ -140,20 +143,21 @@ def docker_checks(image):
                "WORKSHOP_RECIPE": str(Path(__file__).resolve().parents[1] / "recipes/generic"),
                "CODEX_IMAGE": image, "CODEX_RAM_DIR": str(home),
                "HOST_UID": str(os.getuid()), "HOST_GID": str(os.getgid()),
-               "WORKSHOP_MEMORY_LIMIT": "1g"}
+               "WORKSHOP_MEMORY_LIMIT": "1g", "WORKSHOP_HOME": container_home,
+               "WORKSHOP_USER": username}
         base = Path(__file__).resolve().parents[1] / "runtime/compose.yaml"
         identity = r'''
 set -euo pipefail
-[[ $(id -un) == ubuntu && $(id -u) == "$1" && $(id -g) == "$2" ]]
-[[ $HOME == /home/codex && $USER == ubuntu && $LOGNAME == ubuntu ]]
+[[ $(id -un) == EXPECTED_USER && $(id -u) == "$1" && $(id -g) == "$2" ]]
+[[ $HOME == EXPECTED_HOME && $USER == EXPECTED_USER && $LOGNAME == EXPECTED_USER ]]
 IFS=: read -r name password uid gid comment account_home shell < <(getent passwd "$(id -u)")
 [[ $account_home == "$HOME" ]]
 [[ $(cat "$HOME/work/project.txt") == shared ]]
 [[ $(cat "$HOME/.local/bin/shared-tool") == shared ]]
-'''
+'''.replace("EXPECTED_HOME", shlex.quote(container_home)).replace("EXPECTED_USER", shlex.quote(username))
         for tool in (*session.TOOLS, "maintain"):
             runtime = root / ("runtime-" + tool)
-            session.prepare(image, home, runtime, os.getuid(), os.getgid(), tool)
+            session.prepare(image, home, runtime, os.getuid(), os.getgid(), tool, container_home, username)
             command = ["docker", "compose", "--profile", "maintenance", "--env-file", "/dev/null", "--file", str(base),
                        "--file", str(runtime / "compose.json")]
             config = subprocess.run([*command, "config", "--format", "json"], env=env,
@@ -165,7 +169,7 @@ IFS=: read -r name password uid gid comment account_home shell < <(getent passwd
                       for owner, paths in SECRETS.items() if owner != tool for relative in paths}
             for owner, paths in SECRETS.items():
                 for relative in paths:
-                    path = shlex.quote("/home/codex/" + relative)
+                    path = shlex.quote(container_home + "/" + relative)
                     if owner == tool or tool == "maintain":
                         checks += f"[[ -s {path} ]]\nprintf updated-{tool} > {path}\n"
                     else:
@@ -216,9 +220,13 @@ if __name__ == "__main__":
     parser.add_argument("--docker", action="store_true")
     parser.add_argument("--image", default="ubuntu:24.04")
     args = parser.parse_args()
-    unit_checks()
+    for container_home in ("/home/codex", "/home/ubuntu"):
+        unit_checks(container_home)
+    unit_checks("/home/developer", "developer")
     if args.docker:
         try:
-            docker_checks(args.image)
+            for container_home in ("/home/codex", "/home/ubuntu"):
+                docker_checks(args.image, container_home)
+            docker_checks(args.image, "/home/developer", "developer")
         except subprocess.CalledProcessError as error:
             sys.exit(f"Docker check failed ({error.returncode}): {error.stderr}")

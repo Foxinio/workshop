@@ -60,6 +60,7 @@ def main():
                     raise ValueError("invalid Dockerfile")
                 assert "WORKSHOP_TOOLS=all" in args
                 assert "CODEX_VERSION=latest" in args
+                assert any(arg in args for arg in ("WORKSHOP_HOME=/home/codex", "WORKSHOP_HOME=/home/ubuntu", "WORKSHOP_HOME=/home/builder"))
                 return ""
             raise AssertionError(args)
 
@@ -80,6 +81,16 @@ def main():
             config.check_update(root)
             update.run_update(root)  # repeated update is safe
             assert checks.call_count >= 4
+
+            for username in ("ubuntu", "builder"):
+                text = original_config + f'container_user = "{username}"\n'
+                config.project_path(root, "config").write_text(text)
+                update.run_update(root)
+                assert config.project_path(root, "config").read_text() == text
+                with patch.object(Path, "cwd", return_value=root):
+                    _, env = config.project_environment()
+                assert env["WORKSHOP_HOME"] == "/home/" + username
+                assert env["WORKSHOP_USER"] == username
 
             # Replacements require review, even for otherwise untouched files.
             reset()
@@ -249,6 +260,7 @@ def main():
             assert "newer features" in warning.getvalue()
             assert env["WORKSHOP_RECIPE"] == str(legacy_root / "custom/recipe")
             assert env["WORKSHOP_LAYOUT"] == "legacy"
+            assert env["WORKSHOP_HOME"] == "/home/codex"
             with legacy_lock.open("a") as stream:
                 fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 fails(lambda: update.run_update(legacy_root), "active")
@@ -267,6 +279,8 @@ def main():
             with patch.object(Path, "cwd", return_value=migrated_recipe), contextlib.redirect_stderr(warning):
                 _, env = config.project_environment()
             assert not warning.getvalue() and env["WORKSHOP_LAYOUT"] == "current"
+            assert env["WORKSHOP_HOME"] == "/home/codex"
+            assert "container_user" not in config.read_toml(config.project_path(legacy_root, "config"))
             update.run_update(legacy_root)
 
             # A legacy pending review survives migration and --finish.

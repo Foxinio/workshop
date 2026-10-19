@@ -41,7 +41,7 @@ The questionnaire asks, in order:
    **local** (then a local recipe directory). **generic** is the default when present.
 2. Disk checkpoint directory: **docker-bridge**.
 3. Advanced settings? **no**. If yes: RAM capacity **8G**, compression **zstd**,
-   container memory limit **12g**, and Codex build version **latest**.
+   container memory limit **12g**, Codex build version **latest**, and container username **ubuntu**.
 4. Build now? **yes**.
 5. Initialize RAM now? **yes**.
 
@@ -66,6 +66,7 @@ ram_capacity = "8G"
 compression = "zstd"
 memory_limit = "12g"
 codex_version = "latest"
+container_user = "ubuntu"
 ```
 
 | Field | Meaning |
@@ -77,7 +78,15 @@ codex_version = "latest"
 | `memory_limit` | Container memory limit, positive integer with optional K/M/G/T |
 | `codex_version` | npm version or tag used when building Codex |
 
-All listed fields are required. Legacy `tools` settings are accepted and ignored;
+`container_user` is optional: a non-root Linux username of up to 32 lowercase
+letters, digits, underscores or hyphens, beginning with a letter or underscore.
+Init selects `ubuntu` by default; advanced setup lets you change it. The home is
+always `/home/<container_user>`. With no setting, existing workshops retain the
+username `ubuntu` and home `/home/codex`, including after updates, legacy migration
+and rebuilds. Home paths are not independently configurable.
+Custom recipes must honor the `WORKSHOP_HOME` build argument for their home,
+working directory and caches. No saved files or absolute paths are migrated.
+All other listed fields are required. Legacy `tools` settings are accepted and ignored;
 the optional boolean `updating` is reserved for updates; unknown fields are errors. Relative paths resolve against
 the environment root (the parent of `.workshop/`). Commands search upward for the nearest
 configuration, so they also work from project subdirectories. Configuration is
@@ -95,7 +104,7 @@ my-environment/
 │           ├── Dockerfile
 │           └── defaults.toml
 ├── docker-bridge/         disk checkpoint
-└── .workshop-ram/         mounted RAM home → container /home/codex
+└── .workshop-ram/         mounted RAM home → /home/<container_user>
     └── work/             container working directory
 ```
 
@@ -181,8 +190,8 @@ OpenCode is installed using `npm install --global opencode-ai`, as documented in
 [the OpenCode installation guide](https://opencode.ai/docs/#install).
 All three agents share the same image and saved home. Each Compose service explicitly
 selects its own executable, including when using a maintained image.
-All agents and the interactive maintenance shell use the username `ubuntu`, the
-host UID/GID, and `HOME=/home/codex`. Sessions require a non-root host UID.
+All agents and the interactive maintenance shell use the configured username,
+host UID/GID, and derived container home. Sessions require a non-root host UID.
 Runtime account mappings also apply to existing and maintained images; no home
 directory or existing absolute path is moved. Maintenance keeps its account files
 writable so package installation can still add system users and groups.

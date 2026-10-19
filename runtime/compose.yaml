@@ -6,17 +6,18 @@ x-runtime: &runtime
     args:
       CODEX_VERSION: ${CODEX_VERSION:-latest}
       WORKSHOP_TOOLS: all
+      WORKSHOP_HOME: ${WORKSHOP_HOME:?Run through workshop}
 
   image: ${CODEX_IMAGE:?Run through workshop}
   user: "${HOST_UID}:${HOST_GID}"
-  working_dir: /home/codex/work
+  working_dir: ${WORKSHOP_HOME:?Run through workshop}/work
 
   environment:
-    HOME: /home/codex
-    USER: ubuntu
-    LOGNAME: ubuntu
-    XDG_CACHE_HOME: /home/codex/.cache
-    NPM_CONFIG_CACHE: /home/codex/.npm
+    HOME: ${WORKSHOP_HOME:?Run through workshop}
+    USER: ${WORKSHOP_USER:?Run through workshop}
+    LOGNAME: ${WORKSHOP_USER:?Run through workshop}
+    XDG_CACHE_HOME: ${WORKSHOP_HOME:?Run through workshop}/.cache
+    NPM_CONFIG_CACHE: ${WORKSHOP_HOME:?Run through workshop}/.npm
     TERM: ${TERM:-xterm-256color}
 
   stdin_open: true
@@ -33,7 +34,7 @@ x-runtime: &runtime
   volumes:
     - type: bind
       source: ${CODEX_RAM_DIR:?Run through workshop}
-      target: /home/codex
+      target: ${WORKSHOP_HOME:?Run through workshop}
       bind:
         create_host_path: false
 

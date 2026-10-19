@@ -28,9 +28,13 @@ def read_toml(path):
         return tomllib.load(stream)
 
 
+def container_home(config):
+    return "/home/" + config["container_user"] if "container_user" in config else "/home/codex"
+
+
 def validate(root, config):
     expected = {"recipe", *DEFAULTS}
-    if config.keys() - {"tools"} != expected:
+    if config.keys() - {"tools", "container_user"} != expected:
         raise ValueError(f"configuration requires exactly: {', '.join(sorted(expected))}")
     for key, value in config.items():
         if not isinstance(value, str) or not value.strip() or any(ord(c) < 32 for c in value):
@@ -42,6 +46,9 @@ def validate(root, config):
         raise ValueError("invalid compression algorithm name")
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9.+_-]*", config["codex_version"]):
         raise ValueError("codex_version must be an npm version or tag")
+    username = config.get("container_user", "ubuntu")
+    if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,31}", username) or username == "root":
+        raise ValueError("container_user must be a non-root Linux username (up to 32 characters)")
     recipe = (root / config["recipe"]).resolve()
     if (root / ".workshop").is_dir():
         recipes = root / ".workshop" / "recipes"
@@ -133,6 +140,8 @@ def project_environment():
         "WORKSHOP_LAYOUT": "legacy" if (root / ".workshop").is_file() else "current",
         "WORKSHOP_ID": identity,
         "WORKSHOP_RECIPE": str(recipe),
+        "WORKSHOP_HOME": container_home(config),
+        "WORKSHOP_USER": config.get("container_user", "ubuntu"),
         "CODEX_BRIDGE_DIR": str(checkpoint),
         "ZRAM_SIZE": config["ram_capacity"],
         "ZRAM_ALGORITHM": config["compression"],

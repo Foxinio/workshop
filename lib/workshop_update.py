@@ -14,7 +14,7 @@ import sys
 import tempfile
 import tomllib
 
-from workshop_config import DEFAULTS, INSTALL, project_root, project_path, warn_legacy, read_toml, validate
+from workshop_config import DEFAULTS, INSTALL, project_root, project_path, warn_legacy, read_toml, validate, container_home
 
 MARKERS = re.compile(rb"(?m)^(?:<<<<<<< WORKSHOP CURRENT|======= WORKSHOP TEMPLATE|>>>>>>> WORKSHOP TEMPLATE)\r?$")
 FLAG = re.compile(r"(?m)^updating\s*=\s*(?:true|false)[ \t]*(?:#[^\n]*)?\n?")
@@ -203,7 +203,9 @@ def validate_files(root, config, recipe, names):
                WORKSHOP_RECIPE=str(recipe), CODEX_IMAGE="workshop-update-check",
                CODEX_RAM_DIR=str(root / ".workshop-ram"), HOST_UID=str(os.getuid()),
                HOST_GID=str(os.getgid()), WORKSHOP_MEMORY_LIMIT=config["memory_limit"],
-               CODEX_VERSION=config["codex_version"], WORKSHOP_TOOLS="all")
+               CODEX_VERSION=config["codex_version"], WORKSHOP_TOOLS="all",
+               WORKSHOP_HOME=container_home(config),
+               WORKSHOP_USER=config.get("container_user", "ubuntu"))
     for name in sorted(set(names)):
         path = safe_path(recipe, name)
         if not path.exists():
@@ -212,6 +214,7 @@ def validate_files(root, config, recipe, names):
         if path.name == "Dockerfile" or path.name.startswith("Dockerfile.") or suffix == ".dockerfile":
             checked(["docker", "buildx", "build", "--check", "--file", str(path),
                      "--build-arg", f"CODEX_VERSION={config['codex_version']}",
+                     "--build-arg", f"WORKSHOP_HOME={container_home(config)}",
                      "--build-arg", "WORKSHOP_TOOLS=all", str(recipe)])
         elif suffix == ".toml":
             read_toml(path)

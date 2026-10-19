@@ -61,13 +61,14 @@ def main():
     if defaults.keys() - DEFAULTS.keys():
         raise ValueError("unknown field in recipe defaults.toml")
     recipe = f".workshop/recipes/{selection}"
-    config = {"recipe": recipe, **DEFAULTS, **defaults}
+    config = {"recipe": recipe, **DEFAULTS, **defaults, "container_user": "ubuntu"}
     config["checkpoint"] = ask("Disk checkpoint directory", config["checkpoint"])
     if yes("Configure advanced settings?", False):
         for key, label in (("ram_capacity", "Zram logical capacity"),
                            ("compression", "Compression algorithm"),
                            ("memory_limit", "Container memory limit"),
-                           ("codex_version", "Codex build version")):
+                           ("codex_version", "Codex build version"),
+                           ("container_user", "Container username")):
             config[key] = ask(label, config[key])
     _, checkpoint = validate(root, config)
     build = yes("Build now?")
